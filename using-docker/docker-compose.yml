@@ -1,0 +1,311 @@
+# Polyglot e-commerce demo with a full OpenTelemetry observability stack.
+#
+#   docker compose up -d --build
+#
+# Shop: http://localhost:8080   Grafana: http://localhost:3000
+# Jaeger: http://localhost:16686   Prometheus: http://localhost:9090
+name: ecommerce-demo-docker
+
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=local,service.namespace=ecommerce
+
+x-db-env: &db-env
+  POSTGRES_HOST: postgres
+  POSTGRES_DB: shop
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+x-rabbit-env: &rabbit-env
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+  RABBITMQ_EXCHANGE: ecommerce.events
+
+services:
+  # ------------------------------------------------------------------
+  # Application
+  # ------------------------------------------------------------------
+
+  frontend:
+    build: ./services/frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api-gateway
+
+  api-gateway: # Go
+    build: ./services/api-gateway-go
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: api-gateway
+
+  product-service: # Python / FastAPI / MongoDB
+    build: ./services/product-service-python
+    restart: unless-stopped
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: product-service
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: none
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_PYTHON_LOG_LEVEL: info
+      MONGO_URI: mongodb://mongodb:27017
+      ERROR_RATE: "0.02"
+      SLOW_RATE: "0.03"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  cart-service: # Node.js / Redis
+    build: ./services/cart-service-node
+    restart: unless-stopped
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: cart-service
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  order-service: # Java / Spring Boot / Postgres / RabbitMQ
+    build: ./services/order-service-java
+    restart: unless-stopped
+    environment:
+      <<: [*otel-env, *db-env]
+      OTEL_SERVICE_NAME: order-service
+      OTEL_LOGS_EXPORTER: none
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_EXCHANGE: ecommerce.events
+      JAVA_TOOL_OPTIONS: -Xms128m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  payment-service: # .NET 8 / Postgres / RabbitMQ
+    build: ./services/payment-service-dotnet
+    restart: unless-stopped
+    environment:
+      <<: [*otel-env, *db-env, *rabbit-env]
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_METRIC_EXPORT_INTERVAL: "15000" # .NET defaults to 60s; match the other services
+      DECLINE_RATE: "0.15"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  inventory-service: # Node.js / Postgres / RabbitMQ
+    build: ./services/inventory-service-node
+    restart: unless-stopped
+    environment:
+      <<: [*otel-env, *db-env, *rabbit-env]
+      OTEL_SERVICE_NAME: inventory-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  notification-service: # Node.js / RabbitMQ
+    build: ./services/notification-service-node
+    restart: unless-stopped
+    environment:
+      <<: [*otel-env, *rabbit-env]
+      OTEL_SERVICE_NAME: notification-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  loadgen:
+    build: ./services/loadgen
+    restart: unless-stopped
+    environment:
+      GATEWAY_URL: http://api-gateway:8000
+      LOADGEN_SLEEP: "1"
+    depends_on:
+      - api-gateway
+
+  # ------------------------------------------------------------------
+  # Data stores
+  # ------------------------------------------------------------------
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    # The management image already enables rabbitmq_prometheus (:15692).
+    ports:
+      - "15672:15672" # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ------------------------------------------------------------------
+  # Observability
+  # ------------------------------------------------------------------
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC (send your own test telemetry)
+      - "4318:4318" # OTLP HTTP
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      # "Monitor" tab (Service Performance Monitoring) reads spanmetrics
+      # from Prometheus.
+      METRICS_STORAGE_TYPE: prometheus
+      PROMETHEUS_SERVER_URL: http://prometheus:9090
+      PROMETHEUS_QUERY_NORMALIZE_CALLS: "true"
+      PROMETHEUS_QUERY_NORMALIZE_DURATION: "true"
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --enable-feature=exemplar-storage
+      - --storage.tsdb.retention.time=3d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:3.2.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/config.yaml"]
+    volumes:
+      - ./observability/promtail.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    restart: unless-stopped
+    environment:
+      # Local demo only: open access, no login screen.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceToMetrics
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+
+  # Infra exporters
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.5
+    restart: unless-stopped
+    privileged: true
+    command: ["--docker_only=true", "--housekeeping_interval=15s"]
+    volumes:
+      # Docker Desktop: mount the sockets themselves — a bare /var/run mount
+      # resolves to the macOS host's /var/run, not the Linux VM's. The
+      # containerd socket is needed with Docker's containerd image store.
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/shop?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.63.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.40.0
+    restart: unless-stopped
+    command: ["--mongodb.uri=mongodb://mongodb:27017", "--collect-all", "--compatible-mode"]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  mongo-data:
+  prometheus-data:
+  grafana-data:

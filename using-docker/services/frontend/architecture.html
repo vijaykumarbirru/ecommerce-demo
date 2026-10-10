@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShopSphere — Architecture & User Journey</title>
+<style>
+  :root {
+    --nav: #131921; --nav2: #232f3e; --accent: #febd69; --cta: #ffd814;
+    --bg: #eaeded; --card: #fff; --text: #0f1111; --muted: #565959; --line: #d5d9d9;
+    --link: #007185; --ok: #067d62; --warn: #c45500; --bad: #b12704;
+    /* one colour per language/role, reused in diagram, legend and waterfall */
+    --go: #00acd7; --py: #3776ab; --node: #3c873a; --java: #e76f00; --dotnet: #7a3fd1;
+    --web: #8a6d3b; --mq: #ff6600; --db: #5f6368; --obs: #c2185b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font: inherit; cursor: pointer; }
+
+  .topbar { background: var(--nav); color: #fff; display: flex; align-items: center; gap: 14px; padding: 10px 16px; position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+  .logo { font-size: 24px; font-weight: 800; letter-spacing: -.5px; color: #fff; display: flex; align-items: flex-end; gap: 2px; }
+  .logo span { color: var(--accent); }
+  .logo .dot { width: 7px; height: 7px; background: var(--accent); border-radius: 50%; margin-bottom: 7px; }
+  .logo:hover { text-decoration: none; }
+  .topbar nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  .topbar nav a { color: #fff; padding: 6px 10px; border: 1px solid transparent; border-radius: 2px; font-size: 14px; }
+  .topbar nav a:hover, .topbar nav a.on { border-color: #fff; text-decoration: none; }
+  .back { background: var(--cta); color: var(--text) !important; border-radius: 100px !important; font-weight: 700; }
+
+  .hero { background: linear-gradient(120deg, #0f2027, #203a43 45%, #2c5364); color: #fff; padding: 36px 16px 90px; }
+  .hero div { max-width: 1240px; margin: 0 auto; }
+  .hero h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 36px); }
+  .hero p { margin: 0; color: #d7e3ea; max-width: 760px; font-size: 16px; }
+  .hero .stats { display: flex; gap: 28px; margin-top: 20px; flex-wrap: wrap; }
+  .hero .stats b { display: block; font-size: 26px; color: var(--accent); }
+  .hero .stats span { font-size: 13px; color: #cfe0e8; }
+
+  main { max-width: 1240px; margin: -60px auto 0; padding: 0 16px 40px; display: grid; gap: 20px; }
+  section.card { background: var(--card); border-radius: 8px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); scroll-margin-top: 70px; }
+  section h2 { margin: 0 0 4px; font-size: 22px; }
+  section .lead { margin: 0 0 16px; color: var(--muted); }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: #bbb; }
+  .live.on i { background: #19a974; box-shadow: 0 0 0 0 rgba(25,169,116,.6); animation: ping 1.6s infinite; }
+  @keyframes ping { 70% { box-shadow: 0 0 0 7px rgba(25,169,116,0); } }
+
+  /* ---------- Architecture diagram ---------- */
+  .diagram { overflow-x: auto; border: 1px solid #eee; border-radius: 8px; background: #fbfbfb; }
+  .diagram svg { display: block; min-width: 980px; width: 100%; height: auto; }
+  .node rect.box { fill: #fff; stroke-width: 2; rx: 10; }
+  .node .title { font: 700 14px Arial, sans-serif; fill: #0f1111; }
+  .node .sub { font: 12px Arial, sans-serif; fill: #565959; }
+  .node .metric { font: 700 11.5px ui-monospace, Menlo, monospace; fill: #565959; }
+  .node .metric.ok { fill: var(--ok); } .node .metric.warn { fill: var(--warn); } .node .metric.bad { fill: var(--bad); }
+  .node .bar { rx: 10; }
+  .node { cursor: default; }
+  .node:hover rect.box { filter: drop-shadow(0 3px 6px rgba(0,0,0,.18)); }
+  .edge { fill: none; stroke: #9aa0a6; stroke-width: 1.8; }
+  .edge.async { stroke: var(--mq); stroke-dasharray: 6 5; animation: flow 1.2s linear infinite; }
+  .edge.data { stroke: #b0b5ba; }
+  @keyframes flow { to { stroke-dashoffset: -22; } }
+  .elabel { font: 11px Arial, sans-serif; fill: #444; paint-order: stroke; stroke: #fbfbfb; stroke-width: 4px; }
+  .zone { fill: none; stroke: #d5d9d9; stroke-dasharray: 4 4; rx: 14; }
+  .zlabel { font: 700 11px Arial, sans-serif; fill: #8a8f94; letter-spacing: .08em; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .legend .ln { width: 26px; height: 0; border-top: 2px solid #9aa0a6; border-radius: 0; }
+  .legend .ln.async { border-top: 2px dashed var(--mq); }
+
+  /* ---------- Tables ---------- */
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+  th { background: #f7f8f8; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  td code, p code, li code { background: #f3f4f4; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .lang { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+  .lang i { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* ---------- Journey ---------- */
+  .journey { display: grid; gap: 0; counter-reset: step; }
+  .step { display: grid; grid-template-columns: 54px 1fr; gap: 16px; position: relative; padding-bottom: 22px; }
+  .step::before { content: ""; position: absolute; left: 26px; top: 46px; bottom: 0; width: 2px; background: #e3e6e6; }
+  .step:last-child::before { display: none; }
+  .step .num { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; background: #fff7e6; border: 2px solid var(--accent); position: relative; z-index: 1; }
+  .step.async .num { background: #fff0e6; border-color: var(--mq); }
+  .step h3 { margin: 4px 0 2px; font-size: 17px; }
+  .step h3 small { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 6px; }
+  .step p { margin: 0 0 8px; color: #333; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #e3e6e6; border-radius: 100px; padding: 2px 10px 2px 6px; font-size: 12.5px; background: #fff; }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; }
+  .tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
+  .tag.sync { background: #e8f0fe; color: #1a56c4; }
+  .tag.async { background: #fff0e6; color: #b34700; }
+  .observe { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+  .observe div { background: #f7f8f8; border-radius: 6px; padding: 8px 10px; font-size: 12.5px; }
+  .observe b { display: block; font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; margin-bottom: 2px; }
+
+  /* ---------- Sequence ---------- */
+  .seq svg { min-width: 900px; }
+  .lane { stroke: #d5d9d9; stroke-dasharray: 3 4; }
+  .actor rect { rx: 8; stroke-width: 2; fill: #fff; }
+  .actor text { font: 700 12.5px Arial, sans-serif; fill: #0f1111; }
+  .msg { stroke: #444; stroke-width: 1.6; fill: none; }
+  .msg.async { stroke: var(--mq); stroke-dasharray: 6 4; }
+  .msg.ret { stroke: #888; stroke-dasharray: 2 3; }
+  .mlabel { font: 12px Arial, sans-serif; fill: #222; paint-order: stroke; stroke: #fbfbfb; stroke-width: 4px; }
+  .mnum { font: 700 10px Arial, sans-serif; fill: #fff; }
+  .divider { stroke: var(--mq); stroke-width: 1; stroke-dasharray: 8 4; opacity: .6; }
+  .dlabel { font: 700 11px Arial, sans-serif; fill: var(--mq); letter-spacing: .06em; }
+
+  /* ---------- Waterfall ---------- */
+  .wf-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .wf-meta { font-size: 13px; color: var(--muted); }
+  .wf-meta b { color: var(--text); }
+  .btn { border-radius: 100px; border: 1px solid #d5d9d9; background: #fff; padding: 6px 14px; font-size: 13px; box-shadow: 0 2px 5px rgba(213,217,217,.5); }
+  .btn:hover { background: #f7fafa; }
+  .btn.primary { background: var(--cta); border-color: #fcd200; box-shadow: none; }
+  .wf { border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+  .wf-row { display: grid; grid-template-columns: minmax(220px, 38%) 1fr; border-bottom: 1px solid #f1f1f1; font-size: 12.5px; }
+  .wf-row:last-child { border-bottom: 0; }
+  .wf-row:hover { background: #fafcff; }
+  .wf-name { padding: 5px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 1px solid #f1f1f1; }
+  .wf-name .svc { font-weight: 700; margin-right: 6px; }
+  .wf-name .err { color: var(--bad); font-weight: 700; margin-left: 4px; }
+  .wf-track { position: relative; padding: 5px 0; }
+  .wf-bar { position: absolute; top: 6px; height: 14px; border-radius: 3px; min-width: 2px; }
+  .wf-dur { position: absolute; top: 4px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .wf-empty { padding: 30px; text-align: center; color: var(--muted); }
+  .wf-axis { display: grid; grid-template-columns: minmax(220px, 38%) 1fr; font-size: 11px; color: var(--muted); background: #f7f8f8; border-bottom: 1px solid #eee; }
+  .wf-axis div:last-child { display: flex; justify-content: space-between; padding: 4px 8px; }
+  .wf-axis div:first-child { padding: 4px 10px; border-right: 1px solid #eee; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+  .foot { background: var(--nav2); color: #ddd; text-align: center; padding: 22px 16px; font-size: 13px; }
+  @media (max-width: 640px) {
+    section.card { padding: 18px 14px; }
+    .wf-row, .wf-axis { grid-template-columns: 150px 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="logo" href="/">shop<span>sphere</span><i class="dot"></i></a>
+  <nav>
+    <a href="#architecture">Architecture</a>
+    <a href="#stack">Tech stack</a>
+    <a href="#journey">User journey</a>
+    <a href="#sequence">Checkout flow</a>
+    <a href="#trace">Live trace</a>
+    <a href="/" class="back">← Back to shop</a>
+  </nav>
+</header>
+
+<div class="hero">
+  <div>
+    <h1>How ShopSphere works</h1>
+    <p>A polyglot microservices store instrumented end-to-end with OpenTelemetry. The diagram and trace below are live: they read from the same Prometheus and Jaeger instances that power the dashboards.</p>
+    <div class="stats">
+      <div><b>8</b><span>services</span></div>
+      <div><b>5</b><span>languages</span></div>
+      <div><b>4</b><span>data stores</span></div>
+      <div><b id="statRps">–</b><span>requests / sec (live)</span></div>
+      <div><b id="statOrders">–</b><span>orders paid / min (live)</span></div>
+    </div>
+  </div>
+</div>
+
+<main>
+  <!-- ===================== Architecture ===================== -->
+  <section class="card" id="architecture">
+    <div class="row">
+      <div><h2>System architecture</h2><p class="lead">Synchronous HTTP on the left, asynchronous events through RabbitMQ on the right. Every service exports telemetry to one OpenTelemetry Collector.</p></div>
+      <span class="live" id="liveArch"><i></i><span>connecting to Prometheus…</span></span>
+    </div>
+    <div class="diagram"><svg id="arch" viewBox="0 0 1240 800" role="img" aria-label="Architecture diagram"></svg></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <!-- ===================== Tech stack ===================== -->
+  <section class="card" id="stack">
+    <h2>Services & tech stack</h2>
+    <p class="lead">Each service uses a different language on purpose, so you can practice the OpenTelemetry instrumentation style for each.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Service</th><th>Language / framework</th><th>Owns</th><th>Talks to</th><th>Instrumentation</th></tr></thead>
+      <tbody id="stackBody"></tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== Journey ===================== -->
+  <section class="card" id="journey">
+    <h2>User journey</h2>
+    <p class="lead">What happens behind each click, and where to look for it in the observability tools.</p>
+    <div class="journey" id="journeySteps"></div>
+  </section>
+
+  <!-- ===================== Sequence ===================== -->
+  <section class="card seq" id="sequence">
+    <h2>Checkout flow (sequence)</h2>
+    <p class="lead">Steps 1–7 happen while the shopper waits (≈ tens of ms). Everything below the line happens asynchronously after the HTTP response is sent.</p>
+    <div class="diagram"><svg id="seq" viewBox="0 0 1240 700" role="img" aria-label="Checkout sequence diagram"></svg></div>
+  </section>
+
+  <!-- ===================== Live trace ===================== -->
+  <section class="card" id="trace">
+    <div class="wf-head">
+      <div><h2>Live trace: latest checkout</h2><div class="wf-meta" id="wfMeta">Loading the most recent checkout from Jaeger…</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" type="button" id="wfReload">↻ Load newer</button>
+        <a class="btn primary" id="wfOpen" target="_blank" rel="noopener">Open in Jaeger ↗</a>
+      </div>
+    </div>
+    <div class="wf" id="wf"><div class="wf-empty">Loading…</div></div>
+    <p class="note">One shopper click becomes one trace: Go → Node.js → Java → RabbitMQ → .NET → Java + Node.js. Trace context crosses RabbitMQ in the W3C <code>traceparent</code> message header. The .NET service propagates it by hand, the others through auto-instrumentation.</p>
+  </section>
+</main>
+
+<footer class="foot">ShopSphere is a fictional demo store for an observability lab · <a href="/" style="color:#febd69">Back to shop</a></footer>
+
+<script>
+/* ===================== Model ===================== */
+const KIND = {
+  go: { color: 'var(--go)', label: 'Go' }, py: { color: 'var(--py)', label: 'Python' },
+  node: { color: 'var(--node)', label: 'Node.js' }, java: { color: 'var(--java)', label: 'Java' },
+  dotnet: { color: 'var(--dotnet)', label: '.NET' }, web: { color: 'var(--web)', label: 'Edge / client' },
+  mq: { color: 'var(--mq)', label: 'Messaging' }, db: { color: 'var(--db)', label: 'Data store' },
+  obs: { color: 'var(--obs)', label: 'Observability' },
+};
+
+// x/y are the box's top-left corner in the 1240×800 viewBox.
+const W = 200, H = 72;
+const NODES = [
+  { id: 'shopper', x: 24, y: 120, title: 'Shopper', sub: 'browser · :8080', kind: 'web', w: 180 },
+  { id: 'loadgen', x: 24, y: 290, title: 'loadgen', sub: 'curl shoppers', kind: 'web', w: 180 },
+  { id: 'frontend', x: 244, y: 120, title: 'frontend', sub: 'nginx · static UI', kind: 'web' },
+  { id: 'api-gateway', x: 244, y: 290, title: 'api-gateway', sub: 'Go · :8000', kind: 'go', svc: true },
+  { id: 'product-service', x: 484, y: 60, title: 'product-service', sub: 'Python · FastAPI', kind: 'py', svc: true },
+  { id: 'cart-service', x: 484, y: 230, title: 'cart-service', sub: 'Node.js · Express', kind: 'node', svc: true },
+  { id: 'order-service', x: 484, y: 400, title: 'order-service', sub: 'Java · Spring Boot', kind: 'java', svc: true },
+  { id: 'mongodb', x: 772, y: 60, title: 'MongoDB', sub: 'catalog', kind: 'db', job: 'mongodb', w: 190 },
+  { id: 'redis', x: 772, y: 230, title: 'Redis', sub: 'carts (hash per user)', kind: 'db', job: 'redis', w: 190 },
+  { id: 'rabbitmq', x: 772, y: 400, title: 'RabbitMQ', sub: 'topic: ecommerce.events', kind: 'mq', job: 'rabbitmq', w: 190 },
+  { id: 'postgres', x: 772, y: 580, title: 'PostgreSQL', sub: 'order · payment · inventory', kind: 'db', job: 'postgres', w: 190 },
+  { id: 'payment-service', x: 1024, y: 270, title: 'payment-service', sub: '.NET 8 · on order.created', kind: 'dotnet', svc: true },
+  { id: 'inventory-service', x: 1024, y: 430, title: 'inventory-service', sub: 'Node.js · on payment.completed', kind: 'node', svc: true },
+  { id: 'notification-service', x: 1024, y: 580, title: 'notification-svc', sub: 'Node.js · on order.* / payment.*', kind: 'node', svc: true },
+  // observability band
+  { id: 'otel', x: 24, y: 700, title: 'OTel Collector', sub: 'OTLP :4317/:4318', kind: 'obs', w: 190 },
+  { id: 'jaeger', x: 290, y: 700, title: 'Jaeger', sub: 'traces ← collector', kind: 'obs', w: 160 },
+  { id: 'prometheus', x: 480, y: 700, title: 'Prometheus', sub: 'metrics ← collector', kind: 'obs', w: 160 },
+  { id: 'loki', x: 670, y: 700, title: 'Loki + Promtail', sub: 'logs ← container stdout', kind: 'obs', w: 170 },
+  { id: 'grafana', x: 870, y: 700, title: 'Grafana', sub: 'queries all three', kind: 'obs', w: 170 },
+  { id: 'exporters', x: 1068, y: 700, title: 'Exporters', sub: 'cAdvisor · db · mq', kind: 'obs', w: 150 },
+];
+
+// [from, to, label, {sides: [fromSide, toSide], off: [fromOffset, toOffset], cls, ldx, ldy}]
+// sides: l r t b. Offsets slide the anchor along that side so parallel edges don't overlap.
+const EDGES = [
+  ['shopper', 'frontend', 'HTTP'],
+  ['frontend', 'api-gateway', '/api/*', { sides: ['b', 't'] }],
+  ['loadgen', 'api-gateway', 'HTTP'],
+  ['api-gateway', 'product-service', '/products', { sides: ['r', 'l'], off: [-18, 0], ldx: 24 }],
+  ['api-gateway', 'cart-service', '/cart', { sides: ['r', 'l'], off: [0, 0] }],
+  ['api-gateway', 'order-service', '/orders', { sides: ['r', 'l'], off: [18, 0], ldx: -10 }],
+  ['cart-service', 'product-service', 'price lookup', { sides: ['t', 'b'], ldx: 44 }],
+  ['cart-service', 'order-service', 'checkout', { sides: ['b', 't'], ldx: 34 }],
+  ['product-service', 'mongodb', '', { cls: 'data' }],
+  ['cart-service', 'redis', '', { cls: 'data' }],
+  ['order-service', 'rabbitmq', 'order.created', { cls: 'async', sides: ['r', 'l'], off: [-14, -14], ldy: -2 }],
+  ['rabbitmq', 'order-service', 'payment.*', { cls: 'async', sides: ['l', 'r'], off: [14, 14], ldy: 20 }],
+  ['order-service', 'postgres', '', { cls: 'data', sides: ['b', 'l'] }],
+  ['rabbitmq', 'payment-service', 'order.created', { cls: 'async', sides: ['r', 'l'], off: [-24, -12], ldx: -6, ldy: -6 }],
+  ['payment-service', 'rabbitmq', 'payment.*', { cls: 'async', sides: ['l', 'r'], off: [12, -8], ldx: 14, ldy: 22 }],
+  ['rabbitmq', 'inventory-service', '', { cls: 'async', sides: ['r', 'l'], off: [8, 0] }],
+  ['rabbitmq', 'notification-service', '', { cls: 'async', sides: ['b', 'l'], off: [50, -10] }],
+];
+
+/* ===================== Helpers ===================== */
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const byId = Object.fromEntries(NODES.map((n) => [n.id, n]));
+const wOf = (n) => n.w || W;
+const center = (n) => ({ x: n.x + wOf(n) / 2, y: n.y + H / 2 });
+
+// Anchor point on a side of a box, plus the outward direction of that side.
+function anchor(n, side, off = 0) {
+  const c = center(n);
+  return {
+    l: { x: n.x, y: c.y + off, dx: -1, dy: 0 },
+    r: { x: n.x + wOf(n), y: c.y + off, dx: 1, dy: 0 },
+    t: { x: c.x + off, y: n.y, dx: 0, dy: -1 },
+    b: { x: c.x + off, y: n.y + H, dx: 0, dy: 1 },
+  }[side];
+}
+
+function edgePath(a, b, opt = {}) {
+  let sides = opt.sides;
+  if (!sides) {
+    const ca = center(a), cb = center(b), dx = cb.x - ca.x, dy = cb.y - ca.y;
+    sides = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? ['r', 'l'] : ['l', 'r']) : (dy > 0 ? ['b', 't'] : ['t', 'b']);
+  }
+  const [o1, o2] = opt.off || [0, 0];
+  const p1 = anchor(a, sides[0], o1), p2 = anchor(b, sides[1], o2);
+  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const k = Math.max(28, dist * 0.4);
+  const c1 = { x: p1.x + p1.dx * k, y: p1.y + p1.dy * k };
+  const c2 = { x: p2.x + p2.dx * k, y: p2.y + p2.dy * k };
+  // point at t=0.5 on the cubic bezier, for the label
+  const mid = { x: (p1.x + 3 * c1.x + 3 * c2.x + p2.x) / 8 + (opt.ldx || 0), y: (p1.y + 3 * c1.y + 3 * c2.y + p2.y) / 8 + (opt.ldy || 0) };
+  return { d: `M${p1.x},${p1.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`, mid };
+}
+
+/* ===================== Draw architecture ===================== */
+const arch = document.getElementById('arch');
+const defs = el('defs', {}, arch);
+[['arrow', '#9aa0a6'], ['arrow-async', '#ff6600'], ['arrow-data', '#b0b5ba']].forEach(([id, c]) => {
+  const m = el('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
+  el('path', { d: 'M0,0 L10,5 L0,10 z', fill: c }, m);
+});
+
+// zones
+el('rect', { class: 'zone', x: 10, y: 30, width: 694, height: 470 }, arch);
+el('text', { class: 'zlabel', x: 24, y: 50 }, arch).textContent = 'SYNCHRONOUS · HTTP';
+el('rect', { class: 'zone', x: 716, y: 30, width: 514, height: 640 }, arch);
+el('text', { class: 'zlabel', x: 1000, y: 50 }, arch).textContent = 'ASYNCHRONOUS · EVENTS & DATA';
+el('rect', { class: 'zone', x: 10, y: 676, width: 1220, height: 112 }, arch);
+el('text', { class: 'zlabel', x: 24, y: 692 }, arch).textContent = 'OBSERVABILITY · every service sends OTLP → OTel Collector';
+
+const edgeLayer = el('g', {}, arch);
+const nodeLayer = el('g', {}, arch);
+
+EDGES.forEach(([from, to, label, opt = {}]) => {
+  const { d, mid } = edgePath(byId[from], byId[to], opt);
+  const cls = opt.cls || '';
+  el('path', { d, class: `edge ${cls}`, 'marker-end': `url(#${cls === 'async' ? 'arrow-async' : cls === 'data' ? 'arrow-data' : 'arrow'})` }, edgeLayer);
+  if (label) {
+    const t = el('text', { class: 'elabel', x: mid.x, y: mid.y - 5, 'text-anchor': 'middle' }, edgeLayer);
+    t.textContent = label;
+  }
+});
+
+const metricEls = {};
+NODES.forEach((n) => {
+  const g = el('g', { class: 'node', transform: `translate(${n.x},${n.y})` }, nodeLayer);
+  const color = KIND[n.kind].color;
+  el('rect', { class: 'box', width: wOf(n), height: H, stroke: color }, g);
+  el('rect', { class: 'bar', width: 8, height: H, fill: color }, g);
+  el('rect', { x: 4, width: 6, height: H, fill: color }, g); // square off the inner edge of the bar
+  el('text', { class: 'title', x: 20, y: 24 }, g).textContent = n.title;
+  el('text', { class: 'sub', x: 20, y: 42 }, g).textContent = n.sub;
+  const m = el('text', { class: 'metric', x: 20, y: 61 }, g);
+  m.textContent = n.svc || n.job ? '…' : '';
+  metricEls[n.id] = { text: m, box: g.querySelector('rect.box'), color };
+  const tip = el('title', {}, g);
+  tip.textContent = `${n.title} — ${KIND[n.kind].label}`;
+});
+
+document.getElementById('legend').innerHTML =
+  ['go', 'py', 'node', 'java', 'dotnet', 'mq', 'db', 'obs'].map((k) => `<span><i style="background:${KIND[k].color}"></i>${KIND[k].label}</span>`).join('') +
+  '<span style="color:var(--text)"><b>Box metrics:</b>&nbsp;req/s · error % · p95 latency</span><span><i class="ln"></i>HTTP call</span><span><i class="ln async"></i>RabbitMQ event</span><span><i class="ln" style="border-top-color:#b0b5ba"></i>Data access</span>';
+
+/* ===================== Live metrics ===================== */
+async function prom(q) {
+  const r = await fetch('/prom/api/v1/query?query=' + encodeURIComponent(q));
+  if (!r.ok) throw new Error('prometheus ' + r.status);
+  return (await r.json()).data.result;
+}
+const SRV = 'span_kind=~"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER"';
+const fmt = (v, d = 1) => (isFinite(v) ? Number(v).toFixed(d) : '–');
+
+async function refreshMetrics() {
+  const live = document.getElementById('liveArch');
+  try {
+    const [rps, err, p95, up, paid] = await Promise.all([
+      prom(`sum by (service_name) (rate(traces_span_metrics_calls_total{${SRV}}[1m]))`),
+      prom(`sum by (service_name) (rate(traces_span_metrics_calls_total{${SRV}, status_code="STATUS_CODE_ERROR"}[1m]))`),
+      prom(`histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_milliseconds_bucket{${SRV}}[1m])))`),
+      prom('up'),
+      prom('sum(rate(payments_processed_total{result="captured"}[1m])) * 60'),
+    ]);
+    const idx = (res, key = 'service_name') => Object.fromEntries(res.map((r) => [r.metric[key], parseFloat(r.value[1])]));
+    const R = idx(rps), E = idx(err), P = idx(p95), U = idx(up, 'job');
+    let total = 0;
+    NODES.forEach((n) => {
+      const m = metricEls[n.id];
+      if (n.svc) {
+        const r = R[n.id] || 0, e = (E[n.id] || 0) / (r || 1), p = P[n.id];
+        total += r;
+        m.text.textContent = `${fmt(r)} rps · ${fmt(e * 100)}% · ${isFinite(p) ? Math.round(p) : '–'} ms`;
+        const cls = e > 0.05 || p > 1000 ? 'bad' : e > 0.01 || p > 300 ? 'warn' : 'ok';
+        m.text.setAttribute('class', 'metric ' + cls);
+        m.box.setAttribute('stroke', cls === 'bad' ? 'var(--bad)' : m.color);
+      } else if (n.job) {
+        const ok = U[n.job] === 1;
+        m.text.textContent = ok ? '● exporter up' : '● exporter down';
+        m.text.setAttribute('class', 'metric ' + (ok ? 'ok' : 'bad'));
+      }
+    });
+    document.getElementById('statRps').textContent = fmt(total);
+    document.getElementById('statOrders').textContent = paid.length ? fmt(parseFloat(paid[0].value[1])) : '0';
+    live.className = 'live on';
+    live.querySelector('span').textContent = 'live · refreshes every 5s';
+  } catch (e) {
+    live.className = 'live';
+    live.querySelector('span').textContent = 'Prometheus unreachable: ' + e.message;
+  }
+}
+refreshMetrics();
+setInterval(refreshMetrics, 5000);
+
+/* ===================== Tech stack table ===================== */
+const STACK = [
+  ['api-gateway', 'go', 'Go 1.23 · net/http reverse proxy', '—', 'product, cart, order, payment, inventory', 'Manual OTel SDK + <code>otelhttp</code> handler/transport'],
+  ['product-service', 'py', 'Python 3.12 · FastAPI', 'MongoDB <code>catalog.products</code>', '—', 'Zero-code: <code>opentelemetry-instrument</code>'],
+  ['cart-service', 'node', 'Node.js 20 · Express', 'Redis <code>cart:{user}</code>', 'product (price), order (checkout)', 'NodeSDK + auto-instrumentations'],
+  ['order-service', 'java', 'Java 21 · Spring Boot 3', 'Postgres <code>orders</code>, <code>order_items</code>', 'RabbitMQ publish + consume', 'Zero-code: OTel Java agent'],
+  ['payment-service', 'dotnet', '.NET 8 · ASP.NET Core', 'Postgres <code>payments</code>', 'RabbitMQ consume + publish', 'Manual SDK + hand-written <code>traceparent</code> propagation'],
+  ['inventory-service', 'node', 'Node.js 20 · Express', 'Postgres <code>inventory</code>', 'RabbitMQ consume', 'NodeSDK + auto-instrumentations'],
+  ['notification-service', 'node', 'Node.js 20', '—', 'RabbitMQ consume', 'NodeSDK + auto-instrumentations'],
+  ['frontend', 'web', 'nginx 1.27 · vanilla JS', '—', 'api-gateway', '— (browser not instrumented)'],
+];
+document.getElementById('stackBody').innerHTML = STACK.map(([s, k, f, o, t, i]) =>
+  `<tr><td><span class="lang"><i style="background:${KIND[k].color}"></i>${s}</span></td><td>${f}</td><td>${o}</td><td>${t}</td><td>${i}</td></tr>`).join('');
+
+/* ===================== Journey ===================== */
+const chip = (svc) => { const n = byId[svc]; return `<span class="chip"><i style="background:${KIND[n ? n.kind : 'web'].color}"></i>${svc}</span>`; };
+const JOURNEY = [
+  { icon: '🛍', title: 'Browse the catalog', mode: 'sync', time: '≈ 5–20 ms',
+    desc: 'The page loads products through the gateway. The product service reads MongoDB. 3% of requests are slowed and 2% fail on purpose (chaos knobs).',
+    svcs: ['api-gateway', 'product-service'],
+    obs: [['Trace', 'Jaeger → <code>api-gateway</code> → <code>GET /api/products</code>'], ['Metric', 'RED dashboard → p95 latency by service'], ['Log', 'Loki: <code>{service="product-service"} |= "slow"</code>']] },
+  { icon: '➕', title: 'Add to cart', mode: 'sync', time: '≈ 10–30 ms',
+    desc: 'The cart service looks the price up in the product service (never trusting the client), then stores the line in a Redis hash for that shopper.',
+    svcs: ['api-gateway', 'cart-service', 'product-service'],
+    obs: [['Trace', '<code>POST /api/cart/{id}/items</code>: cart → product → Redis spans'], ['Metric', '<code>cart_items_added_total</code>'], ['Errors', 'Unknown product gives a 404 (not a span error)']] },
+  { icon: '💳', title: 'Checkout', mode: 'sync', time: '≈ 20–60 ms',
+    desc: 'The cart service sends the cart to the order service. It writes the order as PENDING_PAYMENT in Postgres, publishes <code>order.created</code> after the commit, then responds immediately.',
+    svcs: ['api-gateway', 'cart-service', 'order-service'],
+    obs: [['Trace', '<code>POST /orders</code> → JDBC INSERTs → <code>ecommerce.events publish</code>'], ['Metric', '<code>cart_checkouts_total{result}</code>'], ['Log', 'order-service logs carry <code>trace_id=…</code>']] },
+  { icon: '🏦', title: 'Payment', mode: 'async', time: '≈ 50–300 ms later',
+    desc: 'The payment service consumes <code>order.created</code>, simulates the card charge (≈15% declined), stores the result, and publishes <code>payment.completed</code> or <code>payment.failed</code>.',
+    svcs: ['payment-service'],
+    obs: [['Trace', 'Same trace continues: <code>payment.order-created process</code>'], ['Metric', '<code>payments_processed_total{result}</code>'], ['Note', 'A decline is a business outcome, so the span status stays OK']] },
+  { icon: '📦', title: 'Order status, stock & notification', mode: 'async', time: 'in parallel',
+    desc: 'The order service marks the order PAID or PAYMENT_FAILED. The inventory service reserves stock (paid orders only). The notification service "emails" the shopper about every event.',
+    svcs: ['order-service', 'inventory-service', 'notification-service'],
+    obs: [['Trace', 'Three consumer branches fan out in the same trace'], ['Metric', 'RabbitMQ queue depth on the Infrastructure dashboard'], ['Log', '<code>{service="notification-service"} |= "notification sent"</code>']] },
+  { icon: '✅', title: 'Confirmation', mode: 'sync', time: 'polled every 0.7 s',
+    desc: 'The browser polls <code>GET /api/orders/{id}</code> until the status leaves PENDING_PAYMENT, then shows the tracker as complete or declined.',
+    svcs: ['api-gateway', 'order-service'],
+    obs: [['Trace', 'Separate short traces: <code>GET /api/orders/{id}</code>'], ['Try it', 'Stop RabbitMQ: orders stay PENDING and queue depth grows'], ['Dashboard', 'Grafana → Services — RED overview']] },
+];
+document.getElementById('journeySteps').innerHTML = JOURNEY.map((s, i) => `
+  <div class="step ${s.mode}">
+    <div class="num">${s.icon}</div>
+    <div>
+      <h3>${i + 1}. ${s.title} <span class="tag ${s.mode}">${s.mode === 'sync' ? 'sync · user waits' : 'async · background'}</span><small>${s.time}</small></h3>
+      <p>${s.desc}</p>
+      <div class="chips">${s.svcs.map(chip).join('')}</div>
+      <div class="observe">${s.obs.map(([k, v]) => `<div><b>${k}</b>${v}</div>`).join('')}</div>
+    </div>
+  </div>`).join('');
+
+/* ===================== Sequence diagram ===================== */
+(function drawSequence() {
+  const svg = document.getElementById('seq');
+  const sdefs = el('defs', {}, svg);
+  [['sa', '#444'], ['sa-async', '#ff6600'], ['sa-ret', '#888']].forEach(([id, c]) => {
+    const m = el('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto' }, sdefs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', fill: c }, m);
+  });
+  const actors = [
+    ['Shopper', 'web'], ['api-gateway', 'go'], ['cart-service', 'node'], ['order-service', 'java'],
+    ['RabbitMQ', 'mq'], ['payment-service', 'dotnet'], ['inventory', 'node'], ['notification', 'node'],
+  ];
+  const X = actors.map((_, i) => 80 + i * 154);
+  actors.forEach(([name, kind], i) => {
+    el('line', { class: 'lane', x1: X[i], y1: 58, x2: X[i], y2: 690 }, svg);
+    const g = el('g', { class: 'actor' }, svg);
+    el('rect', { x: X[i] - 66, y: 14, width: 132, height: 40, stroke: KIND[kind].color }, g);
+    const t = el('text', { x: X[i], y: 39, 'text-anchor': 'middle' }, g); t.textContent = name;
+  });
+  // [from, to, label, kind] ; kind: sync | ret | async | self
+  const M = [
+    [0, 1, 'POST /api/cart/{u}/checkout', 'sync'],
+    [1, 2, 'POST /cart/{u}/checkout', 'sync'],
+    [2, 3, 'POST /orders {items}', 'sync'],
+    [3, 3, 'INSERT orders + items (tx commit)', 'self'],
+    [3, 4, 'order.created', 'async'],
+    [3, 2, '201 PENDING_PAYMENT', 'ret'],
+    [2, 0, '201 Created (cart cleared in Redis)', 'ret'],
+    'divider',
+    [4, 5, 'order.created', 'async'],
+    [4, 7, 'order.created → "Order received"', 'async'],
+    [5, 5, 'charge card (≈15% decline) · INSERT payments', 'self'],
+    [5, 4, 'payment.completed / failed', 'async'],
+    [4, 3, 'payment.* → PAID / FAILED', 'async'],
+    [4, 6, 'payment.completed → reserve stock', 'async'],
+    [4, 7, 'payment.* → "Payment succeeded/declined"', 'async'],
+    [0, 3, 'GET /api/orders/{id} (poll) → PAID', 'sync'],
+  ];
+  let y = 92, n = 0;
+  M.forEach((m) => {
+    if (m === 'divider') {
+      el('line', { class: 'divider', x1: 10, y1: y - 6, x2: 1230, y2: y - 6 }, svg);
+      const t = el('text', { class: 'dlabel', x: 16, y: y + 8 }, svg); t.textContent = 'HTTP RESPONSE SENT · EVERYTHING BELOW IS ASYNCHRONOUS';
+      y += 34; return;
+    }
+    const [a, b, label, kind] = m; n++;
+    const x1 = X[a], x2 = X[b];
+    if (kind === 'self') {
+      el('path', { class: 'msg', d: `M${x1},${y} h34 v18 h-30`, 'marker-end': 'url(#sa)' }, svg);
+      const t = el('text', { class: 'mlabel', x: x1 + 42, y: y + 13 }, svg); t.textContent = label;
+      y += 14;
+    } else {
+      const dir = Math.sign(x2 - x1);
+      el('line', { class: 'msg ' + (kind === 'sync' ? '' : kind), x1: x1 + dir * 4, y1: y, x2: x2 - dir * 6, y2: y, 'marker-end': `url(#${kind === 'async' ? 'sa-async' : kind === 'ret' ? 'sa-ret' : 'sa'})` }, svg);
+      const t = el('text', { class: 'mlabel', x: (x1 + x2) / 2, y: y - 6, 'text-anchor': 'middle' }, svg); t.textContent = label;
+    }
+    el('circle', { cx: x1 + (kind === 'self' ? 0 : 0), cy: y, r: 9, fill: kind === 'async' ? 'var(--mq)' : '#232f3e' }, svg);
+    const nt = el('text', { class: 'mnum', x: x1, y: y + 3.5, 'text-anchor': 'middle' }, svg); nt.textContent = n;
+    y += 36;
+  });
+  svg.setAttribute('viewBox', `0 0 1240 ${y + 10}`);
+  svg.querySelectorAll('.lane').forEach((l) => l.setAttribute('y2', y));
+})();
+
+/* ===================== Live trace waterfall ===================== */
+const SVC_KIND = Object.fromEntries(NODES.filter((n) => n.svc).map((n) => [n.id, n.kind]));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function loadTrace() {
+  const wf = document.getElementById('wf'), meta = document.getElementById('wfMeta');
+  try {
+    const op = encodeURIComponent('POST /api/cart/{id}/checkout');
+    const r = await fetch(`/jaeger/api/traces?service=api-gateway&operation=${op}&limit=10&lookback=15m`);
+    if (!r.ok) throw new Error('jaeger ' + r.status);
+    const traces = (await r.json()).data || [];
+    if (!traces.length) { wf.innerHTML = '<div class="wf-empty">No checkout traces in the last 15 minutes. Place an order in the shop.</div>'; return; }
+    // Prefer the most complete recent trace (async consumers may still be arriving on the newest one).
+    traces.sort((a, b) => Math.max(...b.spans.map((s) => s.startTime)) - Math.max(...a.spans.map((s) => s.startTime)));
+    const t = traces.slice(0, 5).sort((a, b) => b.spans.length - a.spans.length)[0];
+
+    const spans = t.spans, ids = new Set(spans.map((s) => s.spanID));
+    const parent = (s) => { const ref = (s.references || []).find((x) => ids.has(x.spanID)); return ref ? ref.spanID : null; };
+    const kids = {};
+    spans.forEach((s) => { const p = parent(s); (kids[p] = kids[p] || []).push(s); });
+    Object.values(kids).forEach((l) => l.sort((a, b) => a.startTime - b.startTime));
+    const ordered = [];
+    (function walk(p, depth) { (kids[p] || []).forEach((s) => { ordered.push([s, depth]); walk(s.spanID, depth + 1); }); })(null, 0);
+
+    const t0 = Math.min(...spans.map((s) => s.startTime));
+    const t1 = Math.max(...spans.map((s) => s.startTime + s.duration));
+    const total = Math.max(t1 - t0, 1);
+    const svcCount = new Set(spans.map((s) => t.processes[s.processID].serviceName)).size;
+    const isErr = (s) => (s.tags || []).some((x) => (x.key === 'error' && x.value === true) || (x.key === 'otel.status_code' && x.value === 'ERROR'));
+    const declined = spans.some((s) => (s.operationName || '').includes('payment.failed'));
+    const paid = spans.some((s) => (s.operationName || '').includes('payment.completed'));
+
+    meta.innerHTML = `Trace <b>${t.traceID.slice(0, 12)}…</b> · <b>${spans.length}</b> spans · <b>${svcCount}</b> services · total <b>${(total / 1000).toFixed(1)} ms</b> · ` +
+      (paid ? '<span style="color:var(--ok);font-weight:700">payment captured</span>' : declined ? '<span style="color:var(--bad);font-weight:700">payment declined</span>' : 'payment in flight');
+    document.getElementById('wfOpen').href = `http://localhost:16686/trace/${t.traceID}`;
+
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => `<span>${((total * f) / 1000).toFixed(f ? 1 : 0)} ms</span>`).join('');
+    wf.innerHTML = `<div class="wf-axis"><div>Service · operation</div><div>${ticks}</div></div>` + ordered.map(([s, depth]) => {
+      const svc = t.processes[s.processID].serviceName;
+      const color = KIND[SVC_KIND[svc] || 'db'].color;
+      const left = ((s.startTime - t0) / total) * 100, width = Math.max((s.duration / total) * 100, 0.3);
+      const durMs = s.duration / 1000;
+      const labelLeft = left + width > 82 ? `right:${100 - left + 1}%` : `left:calc(${left + width}% + 4px)`;
+      return `<div class="wf-row" title="${esc(svc)} · ${esc(s.operationName)} · ${durMs.toFixed(2)} ms">
+        <div class="wf-name" style="padding-left:${10 + depth * 14}px"><span class="svc" style="color:${color}">${esc(svc)}</span>${esc(s.operationName)}${isErr(s) ? '<span class="err">⚠ error</span>' : ''}</div>
+        <div class="wf-track"><div class="wf-bar" style="left:${left}%;width:${width}%;background:${color}"></div><span class="wf-dur" style="${labelLeft}">${durMs < 1 ? durMs.toFixed(2) : durMs.toFixed(1)} ms</span></div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    wf.innerHTML = `<div class="wf-empty">Couldn't reach Jaeger (${esc(e.message)}).</div>`;
+  }
+}
+document.getElementById('wfReload').onclick = loadTrace;
+loadTrace();
+</script>
+</body>
+</html>
