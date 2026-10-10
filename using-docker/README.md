@@ -106,3 +106,7 @@ services/
 ```
 
 Default credentials are local-demo values. Override them in `.env` (see `.env.example`).
+
+
+<img width="3024" height="1810" alt="image" src="https://github.com/user-attachments/assets/30acd3a2-e49b-4ff7-b2b3-2fda284c1c2b" />
+
