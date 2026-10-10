@@ -113,3 +113,15 @@ Ecommerce Website
 System Architecture
 <img width="3024" height="1640" alt="image" src="https://github.com/user-attachments/assets/b510bb96-5609-485b-ab6f-44d80b4c894b" />
 
+Services and Tech Stack
+
+<img width="2470" height="1144" alt="image" src="https://github.com/user-attachments/assets/a7368b36-e07c-42bb-ac5d-4476b6eaca10" />
+
+User Journey
+
+<img width="1640" height="1594" alt="image" src="https://github.com/user-attachments/assets/1577cc1c-9829-47ca-a15c-7aace10550ab" />
+
+Checout Flow
+
+<img width="2478" height="1560" alt="image" src="https://github.com/user-attachments/assets/d160f714-f214-416c-a182-3ac646b2be0b" />
+
