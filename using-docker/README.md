@@ -107,6 +107,9 @@ services/
 
 Default credentials are local-demo values. Override them in `.env` (see `.env.example`).
 
+Ecommerce Website
 
 <img width="3024" height="1810" alt="image" src="https://github.com/user-attachments/assets/30acd3a2-e49b-4ff7-b2b3-2fda284c1c2b" />
+System Architecture
+<img width="3024" height="1640" alt="image" src="https://github.com/user-attachments/assets/b510bb96-5609-485b-ab6f-44d80b4c894b" />
 
