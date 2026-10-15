@@ -1,0 +1,34 @@
+# payment-service — .NET 8 / Postgres / RabbitMQ
+image:
+  repository: ecommerce/payment-service
+  tag: ""            # empty = global.imageTag
+replicas: 1
+port: 8004
+health: /health
+startupSeconds: 60   # how long the startup probe waits before giving up
+otel: true           # inject OTEL_* env (endpoint, service name, k8s pod attributes)
+
+# Dependencies to wait for (init containers) — Kubernetes has no depends_on.
+waitFor: 
+  - "{{ .Values.global.hosts.postgres }}:5432"
+  - "{{ .Values.global.hosts.rabbitmq }}:5672"
+
+# Keys read from the shared credentials Secret (global.credentialsSecret).
+secretEnv: 
+  - POSTGRES_USER
+  - POSTGRES_PASSWORD
+  - RABBITMQ_USER
+  - RABBITMQ_PASSWORD
+
+# Plain settings. $(VAR) expands other env vars, e.g. secret values above.
+env: 
+  POSTGRES_HOST: "{{ .Values.global.hosts.postgres }}"
+  POSTGRES_DB: "shop"
+  RABBITMQ_EXCHANGE: "ecommerce.events"
+  RABBITMQ_URL: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@{{ .Values.global.hosts.rabbitmq }}:5672"
+  DECLINE_RATE: "0.15"
+  OTEL_METRIC_EXPORT_INTERVAL: "15000"
+
+resources:
+  requests: { cpu: 50m, memory: 96Mi }
+  limits: { memory: 256Mi }

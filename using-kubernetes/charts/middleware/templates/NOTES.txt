@@ -1,0 +1,5 @@
+Middleware is starting in namespace "{{ .Release.Namespace }}":
+{{- range $n := list "postgres" "mongodb" "redis" "rabbitmq" }}{{ if (index $.Values $n).enabled }}
+  {{ $n }}.{{ $.Release.Namespace }}.svc.cluster.local{{ end }}{{ end }}
+
+  kubectl -n {{ .Release.Namespace }} get pods,pvc

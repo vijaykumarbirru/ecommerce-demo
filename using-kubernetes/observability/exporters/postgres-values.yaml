@@ -1,0 +1,11 @@
+# helm upgrade --install postgres-exporter prometheus-community/prometheus-postgres-exporter \
+#   --version 8.2.0 -n observability -f observability/exporters/postgres-values.yaml
+config:
+  datasource:
+    host: postgres.middleware.svc.cluster.local
+    user: postgres
+    database: shop
+    sslmode: disable
+    passwordSecret: { name: middleware-monitoring, key: POSTGRES_PASSWORD }   # from obs-config chart
+serviceMonitor: { enabled: true }
+resources: { requests: { cpu: 10m, memory: 24Mi }, limits: { memory: 96Mi } }

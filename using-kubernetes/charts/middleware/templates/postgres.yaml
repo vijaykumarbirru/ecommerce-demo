@@ -1,0 +1,11 @@
+{{- if .Values.postgres.enabled }}
+{{- $sec := .Values.global.credentialsSecret }}
+{{- include "data-stores.store" (dict "ctx" . "name" "postgres" "port" 5432 "portName" "postgres"
+      "cfg" .Values.postgres "storage" true "mountPath" "/var/lib/postgresql/data"
+      "probe" (list "sh" "-c" "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"")
+      "env" (list
+        (dict "name" "POSTGRES_DB" "value" .Values.postgres.database)
+        (dict "name" "POSTGRES_USER" "valueFrom" (dict "secretKeyRef" (dict "name" $sec "key" "POSTGRES_USER")))
+        (dict "name" "POSTGRES_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $sec "key" "POSTGRES_PASSWORD")))
+        (dict "name" "PGDATA" "value" "/var/lib/postgresql/data/pgdata"))) }}
+{{- end }}

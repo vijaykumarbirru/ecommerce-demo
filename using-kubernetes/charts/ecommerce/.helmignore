@@ -1,0 +1,2 @@
+# packaged copies from `helm dependency update` — sub-charts live as folders here
+*.tgz

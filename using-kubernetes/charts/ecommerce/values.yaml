@@ -1,0 +1,44 @@
+# Umbrella values for the e-commerce shop.
+#   helm upgrade --install shop charts/ecommerce -n shop --create-namespace \
+#     -f charts/ecommerce/values.yaml -f charts/ecommerce/values-kind.yaml
+#
+# Anything under "global" is visible to every sub-chart as .Values.global.
+
+global:
+  imageTag: "0.1.0"
+  imagePullPolicy: IfNotPresent
+  busyboxImage: busybox:1.37      # used by the wait-for init containers
+  credentialsSecret: ecommerce-credentials
+  # Where the middleware release lives (charts/middleware, namespace "middleware").
+  # Service values reference these as {{ .Values.global.hosts.postgres }} etc.
+  hosts:
+    postgres: postgres.middleware.svc.cluster.local
+    mongodb: mongodb.middleware.svc.cluster.local
+    redis: redis.middleware.svc.cluster.local
+    rabbitmq: rabbitmq.middleware.svc.cluster.local
+  otel:
+    # OpenTelemetry Collector gateway (installed in phase 4). Until it exists
+    # the services just log export warnings — the shop works regardless.
+    endpoint: http://otel-gateway-collector.observability.svc.cluster.local:4318
+    resourceAttributes: deployment.environment=kind,service.namespace=ecommerce
+
+# Shared credentials -> one Secret (templates/secret.yaml); must match charts/middleware. Local demo values;
+# override with --set or a private values file for anything real.
+credentials:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  RABBITMQ_USER: shop
+  RABBITMQ_PASSWORD: shop-local-pw
+
+# Switch any part on/off. Each sub-chart's own settings live in
+# charts/<name>/values.yaml and can be overridden here under the same key,
+# e.g.  cart-service: { replicas: 3 }
+api-gateway:          { enabled: true }
+product-service:      { enabled: true }
+cart-service:         { enabled: true }
+order-service:        { enabled: true }
+payment-service:      { enabled: true }
+inventory-service:    { enabled: true }
+notification-service: { enabled: true }
+frontend:             { enabled: true }
+loadgen:              { enabled: true }

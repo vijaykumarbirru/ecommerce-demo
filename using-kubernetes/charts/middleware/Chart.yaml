@@ -1,0 +1,6 @@
+apiVersion: v2
+name: middleware
+description: "Postgres, MongoDB, Redis and RabbitMQ (StatefulSets, written by hand) — installed in their own namespace"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

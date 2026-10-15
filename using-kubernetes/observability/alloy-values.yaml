@@ -1,0 +1,123 @@
+# Grafana Alloy on every node: tail that node's pod logs -> parse -> mask PII -> Loki.
+#   helm upgrade --install alloy grafana/alloy --version 1.13.0 -n observability -f observability/alloy-values.yaml
+alloy:
+  mounts: { varlog: true }            # /var/log/pods from the node
+  extraEnv:
+    - name: NODE_NAME
+      valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  configMap:
+    content: |
+      // 1. Find the pods running on THIS node.
+      discovery.kubernetes "pods" {
+        role = "pod"
+        selectors {
+          role  = "pod"
+          field = "spec.nodeName=" + sys.env("NODE_NAME")
+        }
+      }
+
+      // 2. Turn pod metadata into labels and point at the pod's log file.
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "node"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+          separator     = "/"
+          target_label  = "__path__"
+          replacement   = "/var/log/pods/*$1/*.log"
+        }
+      }
+
+      local.file_match "pods" {
+        path_targets = discovery.relabel.pods.output
+      }
+
+      loki.source.file "pods" {
+        targets    = local.file_match.pods.targets
+        forward_to = [loki.process.pods.receiver]
+      }
+
+      // 3. Parse, enrich and clean each line.
+      loki.process "pods" {
+        // containerd (CRI) wraps each line with timestamp + stream
+        stage.cri {}
+
+        // Java stack traces: continuation lines join the line that started with a timestamp
+        stage.match {
+          selector = "{app=\"order-service\"}"
+          stage.multiline {
+            firstline     = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}"
+            max_wait_time = "3s"
+          }
+        }
+
+        // PII masking BEFORE anything is stored: emails and card-like numbers
+        stage.replace {
+          expression = "([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})"
+          replace    = "<email-masked>"
+        }
+        stage.replace {
+          expression = "\\b((?:\\d[ -]?){12,15}\\d)\\b"
+          replace    = "<card-masked>"
+        }
+
+        // trace_id in any of our formats: trace_id=..., "trace_id":"...", "TraceId":"..."
+        stage.regex {
+          expression = "(?i)trace_?id\"?\\s*[=:]\\s*\"?(?P<trace_id>[0-9a-f]{32})"
+        }
+        stage.structured_metadata {
+          values = { trace_id = "" }
+        }
+
+        // log level from JSON ("level"/"LogLevel") or plain text ("INFO ", "ERROR ")
+        stage.regex {
+          expression = "(?i)\"(?:level|loglevel)\"\\s*:\\s*\"(?P<level>[a-z]+)\""
+        }
+        stage.regex {
+          expression = "\\s(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\\s"
+        }
+        stage.template {
+          source   = "level"
+          // {{` ... `}} = Helm raw string: the chart runs this file through Helm tpl first
+          template = "{{`{{ $l := ToLower .Value }}{{ if eq $l \"information\" }}info{{ else if eq $l \"warning\" }}warn{{ else if $l }}{{ $l }}{{ else }}unknown{{ end }}`}}"   // .NET says information/warning
+        }
+        stage.labels {
+          values = { level = "" }
+        }
+
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }
+
+# Also run on the control-plane node (Traefik's logs live there).
+controller:
+  type: daemonset
+  tolerations:
+    - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }

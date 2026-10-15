@@ -1,0 +1,92 @@
+# Included verbatim (not templated) by templates/rules.yaml.
+# Built-in kube-prometheus-stack rules already cover KubePodCrashLooping,
+# KubePodNotReady, KubeNodeNotReady and KubePersistentVolumeFillingUp.
+groups:
+  - name: shop-middleware
+    rules:
+      - alert: RabbitMQDown
+        # When the pod is gone the target disappears, so test for "no healthy target".
+        expr: absent(up{job="rabbitmq"} == 1)
+        for: 1m
+        labels: { severity: critical, team: shop }
+        annotations:
+          summary: RabbitMQ is down — orders can't publish order.created
+          description: No healthy RabbitMQ scrape target for 1 minute. Checkout fails with AmqpConnectException in order-service.
+      - alert: DatabaseExporterSeesDown
+        expr: (pg_up == 0) or (redis_up == 0) or (mongodb_up == 0)
+        for: 1m
+        labels: { severity: critical, team: shop }
+        annotations:
+          summary: "{{ $labels.job }} reports its database as down"
+          description: The exporter can't reach its database in the middleware namespace.
+
+  - name: shop-services
+    rules:
+      - alert: ServiceHighErrorRate
+        expr: |
+          sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+            /
+          sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[5m]))
+            > 0.05
+        for: 3m
+        labels: { severity: warning, team: shop }
+        annotations:
+          summary: "{{ $labels.service_name }}: {{ $value | humanizePercentage }} of requests failing"
+          description: More than 5% of server spans ended in error for 3 minutes. Open the Services RED dashboard, then the failing traces.
+      - alert: CheckoutSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout"}[5m]))) > 1000
+        for: 5m
+        labels: { severity: warning, team: shop }
+        annotations:
+          summary: "Checkout p95 is {{ $value | humanize }} ms (target < 1000 ms)"
+      - alert: ContainerOOMKilled
+        expr: |
+          (kube_pod_container_status_last_terminated_reason{reason="OOMKilled", namespace=~"shop|middleware"} == 1)
+            and on (namespace, pod, container)
+          (increase(kube_pod_container_status_restarts_total[10m]) > 0)
+        labels: { severity: warning, team: shop }
+        annotations:
+          summary: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) was OOMKilled"
+          description: The container hit its memory limit and was restarted. Raise resources.limits.memory in its chart values or fix the leak.
+      - alert: TelemetryExportFailing
+        expr: sum(rate(otelcol_exporter_send_failed_spans[5m])) > 0
+        for: 5m
+        labels: { severity: warning, team: observability }
+        annotations:
+          summary: The OTel gateway is failing to export spans (Jaeger down?)
+
+  # SLO: 99% of checkouts succeed (error budget 1%), measured at the api-gateway.
+  - name: shop-slo-checkout
+    rules:
+      - record: slo:checkout_errors:ratio_rate5m
+        expr: |
+          sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout", status_code="STATUS_CODE_ERROR"}[5m]))
+            / sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout"}[5m]))
+      - record: slo:checkout_errors:ratio_rate30m
+        expr: |
+          sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout", status_code="STATUS_CODE_ERROR"}[30m]))
+            / sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout"}[30m]))
+      - record: slo:checkout_errors:ratio_rate1h
+        expr: |
+          sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout", status_code="STATUS_CODE_ERROR"}[1h]))
+            / sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout"}[1h]))
+      - record: slo:checkout_errors:ratio_rate6h
+        expr: |
+          sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout", status_code="STATUS_CODE_ERROR"}[6h]))
+            / sum(rate(traces_span_metrics_calls_total{service_name="api-gateway", span_name="POST /api/cart/{id}/checkout"}[6h]))
+      # Multi-window burn-rate alerts (Google SRE workbook): a 14.4x burn uses 2% of a
+      # 30-day budget in 1 hour; a 6x burn uses 5% in 6 hours.
+      - alert: CheckoutSLOFastBurn
+        expr: slo:checkout_errors:ratio_rate1h > (14.4 * 0.01) and slo:checkout_errors:ratio_rate5m > (14.4 * 0.01)
+        for: 2m
+        labels: { severity: critical, team: shop, slo: checkout-availability }
+        annotations:
+          summary: Checkout error budget burning fast ({{ $value | humanizePercentage }} errors over 5m)
+          description: At this rate the 30-day budget of 1% failed checkouts is gone in about two days.
+      - alert: CheckoutSLOSlowBurn
+        expr: slo:checkout_errors:ratio_rate6h > (6 * 0.01) and slo:checkout_errors:ratio_rate30m > (6 * 0.01)
+        for: 15m
+        labels: { severity: warning, team: shop, slo: checkout-availability }
+        annotations:
+          summary: Checkout error budget burning steadily ({{ $value | humanizePercentage }} errors over 30m)

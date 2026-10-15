@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-nginx
+  labels: { app.kubernetes.io/name: frontend, app.kubernetes.io/part-of: ecommerce }
+data:
+  default.conf: |
+    server {
+        listen 80;
+        # Cluster DNS, so the variables below are resolved per request.
+        resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
+
+        location / {
+            root /usr/share/nginx/html;
+            try_files $uri $uri.html /index.html;
+        }
+
+        # Same-origin API calls: browser -> nginx -> api-gateway.
+        location /api/ {
+            set $gw {{ .Values.apiGatewayUrl | default (printf "http://api-gateway.%s.svc.cluster.local:8000" .Release.Namespace) }};
+            proxy_pass $gw;
+            proxy_set_header Host $host;
+        }
+
+        # Read-only access for the architecture page's live metrics and traces.
+        location /prom/ {
+            limit_except GET { deny all; }
+            set $prom {{ .Values.prometheusUrl }};
+            rewrite ^/prom/(.*)$ /$1 break;
+            proxy_pass $prom;
+        }
+        location /jaeger/ {
+            limit_except GET { deny all; }
+            set $jaeger {{ .Values.jaegerUrl }};
+            rewrite ^/jaeger/(.*)$ /$1 break;
+            proxy_pass $jaeger;
+        }
+    }

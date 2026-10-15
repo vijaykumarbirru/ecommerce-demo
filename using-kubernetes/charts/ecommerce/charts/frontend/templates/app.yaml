@@ -1,0 +1,3 @@
+{{- /* restart nginx automatically when its config changes */}}
+{{- $_ := set .Values.podAnnotations "checksum/nginx-conf" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) }}
+{{- include "ecommerce-common.app" . }}

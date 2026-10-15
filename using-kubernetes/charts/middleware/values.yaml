@@ -1,0 +1,37 @@
+# Middleware release (namespace: middleware).
+#   helm upgrade --install middleware charts/middleware -n middleware --create-namespace
+# The shop reaches these as <name>.middleware.svc.cluster.local.
+
+global:
+  credentialsSecret: middleware-credentials
+
+# Must match the shop chart's credentials (each namespace gets its own Secret).
+credentials:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  RABBITMQ_USER: shop
+  RABBITMQ_PASSWORD: shop-local-pw
+
+# Each store can be switched off, e.g. to point the shop at a managed database.
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: shop
+  storage: 1Gi
+  resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 512Mi } }
+mongodb:
+  enabled: true
+  image: mongo:7
+  storage: 1Gi
+  resources: { requests: { cpu: 50m, memory: 192Mi }, limits: { memory: 512Mi } }
+redis:
+  enabled: true
+  image: redis:7-alpine
+  resources: { requests: { cpu: 25m, memory: 32Mi }, limits: { memory: 128Mi } }
+rabbitmq:
+  enabled: true
+  image: rabbitmq:3.13-management-alpine
+  # Management UI at http://rabbitmq.localhost (Gateway API route)
+  route: { enabled: true, host: rabbitmq.localhost, gateway: { name: main, namespace: traefik } }
+  storage: 1Gi
+  resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 512Mi } }

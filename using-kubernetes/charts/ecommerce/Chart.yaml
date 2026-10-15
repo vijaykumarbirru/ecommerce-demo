@@ -1,0 +1,22 @@
+apiVersion: v2
+name: ecommerce
+description: "Polyglot e-commerce demo (umbrella chart) — 7 services + frontend + load generator; data stores live in the middleware release"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# Umbrella chart: every part of the shop is its own sub-chart under charts/,
+# switched on/off with <name>.enabled in values.yaml.
+dependencies:
+  - name: ecommerce-common          # library chart: shared Deployment/Service templates
+    version: 0.1.0
+    repository: file://charts/ecommerce-common
+  - { name: api-gateway,          version: 0.1.0, repository: file://charts/api-gateway,          condition: api-gateway.enabled }
+  - { name: product-service,      version: 0.1.0, repository: file://charts/product-service,      condition: product-service.enabled }
+  - { name: cart-service,         version: 0.1.0, repository: file://charts/cart-service,         condition: cart-service.enabled }
+  - { name: order-service,        version: 0.1.0, repository: file://charts/order-service,        condition: order-service.enabled }
+  - { name: payment-service,      version: 0.1.0, repository: file://charts/payment-service,      condition: payment-service.enabled }
+  - { name: inventory-service,    version: 0.1.0, repository: file://charts/inventory-service,    condition: inventory-service.enabled }
+  - { name: notification-service, version: 0.1.0, repository: file://charts/notification-service, condition: notification-service.enabled }
+  - { name: frontend,             version: 0.1.0, repository: file://charts/frontend,             condition: frontend.enabled }
+  - { name: loadgen,              version: 0.1.0, repository: file://charts/loadgen,              condition: loadgen.enabled }

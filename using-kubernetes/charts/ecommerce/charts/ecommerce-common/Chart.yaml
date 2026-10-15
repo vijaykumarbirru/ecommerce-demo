@@ -1,0 +1,5 @@
+apiVersion: v2
+name: ecommerce-common
+description: "Library chart — the Deployment + Service template every shop service uses"
+type: library
+version: 0.1.0

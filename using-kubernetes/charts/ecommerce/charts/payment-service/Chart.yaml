@@ -1,0 +1,6 @@
+apiVersion: v2
+name: payment-service
+description: "Payments (.NET 8, consumes order.created, 15% simulated declines)"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

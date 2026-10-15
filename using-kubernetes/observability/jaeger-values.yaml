@@ -1,0 +1,54 @@
+# Jaeger v2 (built on the OpenTelemetry Collector) — traces UI + in-memory storage.
+# Pinned to chart 4.13.1 = Jaeger 2.20: Jaeger 2.21+ dropped the v1 HTTP API (/api/services,
+# /api/traces) that Grafana 13's Jaeger data source and the shop's architecture page use.
+#   helm upgrade --install jaeger jaegertracing/jaeger --version 4.13.1 \
+#     -n observability -f observability/jaeger-values.yaml
+fullnameOverride: jaeger
+
+jaeger:
+  resources:
+    requests: { cpu: 25m, memory: 128Mi }
+    limits: { memory: 768Mi }
+  httproute:                       # http://jaeger.localhost via the shared Traefik Gateway
+    enabled: true
+    parentRefs: [{ name: main, namespace: traefik }]
+    hostnames: [jaeger.localhost]
+
+# Full Jaeger v2 config: OTLP in -> memory store; "Monitor" tab reads the
+# span metrics the OTel gateway writes to Prometheus.
+userconfig:
+  service:
+    extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [jaeger_storage_exporter]
+  extensions:
+    healthcheckv2:
+      use_v2: true
+      http: { endpoint: 0.0.0.0:13133 }
+    jaeger_query:
+      storage:
+        traces: memstore
+        metrics: promstore
+    jaeger_storage:
+      backends:
+        memstore:
+          memory: { max_traces: 50000 }   # lab setting: newest 50k traces, lost on restart
+      metric_backends:
+        promstore:
+          prometheus:
+            endpoint: http://kps-prometheus.observability.svc.cluster.local:9090
+            normalize_calls: true
+            normalize_duration: true
+  receivers:
+    otlp:
+      protocols:
+        grpc: { endpoint: 0.0.0.0:4317 }
+        http: { endpoint: 0.0.0.0:4318 }
+  processors:
+    batch: {}
+  exporters:
+    jaeger_storage_exporter:
+      trace_storage: memstore

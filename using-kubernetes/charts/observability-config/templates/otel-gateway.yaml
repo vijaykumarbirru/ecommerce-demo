@@ -1,0 +1,143 @@
+# The single entry point for app telemetry. Service name: otel-gateway-collector
+# (the shop chart's global.otel.endpoint points here).
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-gateway
+spec:
+  mode: deployment
+  replicas: 1
+  serviceAccount: otel-gateway
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  observability:
+    metrics: { enableMetrics: true }      # operator adds a ServiceMonitor for the collector's own metrics
+  ports:
+    - { name: promexporter, port: 8889 }  # metrics for Prometheus (app + span metrics)
+  {{- if .Values.newrelic.enabled }}
+  env:
+    - name: NEW_RELIC_LICENSE_KEY
+      valueFrom:
+        secretKeyRef: { name: {{ .Values.newrelic.licenseSecret }}, key: NEW_RELIC_LICENSE_KEY }
+  {{- end }}
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      memory_limiter: { check_interval: 1s, limit_percentage: 80, spike_limit_percentage: 25 }
+      # Look up the sending pod in the Kubernetes API and add its deployment,
+      # namespace, node and labels to every span / metric.
+      k8s_attributes:
+        auth_type: serviceAccount
+        extract:
+          metadata: [k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.node.name, k8s.deployment.name]
+          labels:
+            - { tag_name: app.part_of, key: app.kubernetes.io/part-of, from: pod }
+        pod_association:
+          - sources: [{ from: resource_attribute, name: k8s.pod.name }, { from: resource_attribute, name: k8s.namespace.name }]
+          - sources: [{ from: connection }]
+      # Drop telemetry from processes with no service name.
+      filter/unnamed:
+        error_mode: ignore
+        traces:
+          span: ['IsMatch(resource.attributes["service.name"], "^unknown_service")']
+        metrics:
+          metric: ['IsMatch(resource.attributes["service.name"], "^unknown_service")']
+      batch: { timeout: 5s }
+      {{- if .Values.newrelic.enabled }}
+      # Which cluster the data came from (New Relic links APM entities to it).
+      resource/cluster:
+        attributes:
+          - { key: k8s.cluster.name, value: {{ .Values.newrelic.clusterName }}, action: upsert }
+      # New Relic stores metrics as deltas; the SDKs report cumulative totals.
+      cumulative_to_delta: {}
+      {{- end }}
+    connectors:
+      # Uniform RED metrics (rate / errors / duration) from spans, whatever the language.
+      span_metrics:
+        histogram:
+          explicit:
+            buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s]
+        dimensions:
+          - name: http.request.method
+          - name: http.response.status_code
+          - name: k8s.namespace.name
+        exemplars: { enabled: true }
+        metrics_flush_interval: 15s
+    exporters:
+      otlp_grpc/jaeger:
+        endpoint: jaeger.observability.svc.cluster.local:4317
+        tls: { insecure: true }
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        enable_open_metrics: true          # needed for exemplars (metric -> trace links)
+      {{- if .Values.newrelic.enabled }}
+      otlp_http/newrelic:
+        endpoint: {{ .Values.newrelic.endpoint }}
+        headers:
+          api-key: ${env:NEW_RELIC_LICENSE_KEY}
+        compression: gzip
+      {{- end }}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8s_attributes, filter/unnamed, batch]
+          exporters: [otlp_grpc/jaeger, span_metrics]
+        {{- if .Values.newrelic.enabled }}
+        # Same spans to New Relic (APM builds its own RED metrics from them).
+        traces/newrelic:
+          receivers: [otlp]
+          processors: [memory_limiter, k8s_attributes, filter/unnamed, resource/cluster, batch]
+          exporters: [otlp_http/newrelic]
+        # The services' own metrics (not span_metrics), converted to delta.
+        metrics/newrelic:
+          receivers: [otlp]
+          processors: [memory_limiter, k8s_attributes, filter/unnamed, resource/cluster, cumulative_to_delta, batch]
+          exporters: [otlp_http/newrelic]
+        {{- end }}
+        metrics:
+          receivers: [otlp, span_metrics]
+          processors: [memory_limiter, k8s_attributes, filter/unnamed, batch]
+          exporters: [prometheus]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: otel-gateway }
+---
+# k8sattributes needs to read pods, namespaces, nodes and ReplicaSets/Deployments.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: otel-gateway-k8sattributes }
+rules:
+  - apiGroups: [""]
+    resources: [pods, namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets, deployments]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: otel-gateway-k8sattributes }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: otel-gateway-k8sattributes }
+subjects:
+  - { kind: ServiceAccount, name: otel-gateway, namespace: {{ .Release.Namespace }} }
+---
+# Prometheus scrapes the app + span metrics the collector exposes on :8889.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: { name: otel-gateway-app-metrics }
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-gateway-collector
+      operator.opentelemetry.io/collector-service-type: base
+  endpoints:
+    - port: promexporter
+      interval: 15s
+      honorLabels: true                    # keep the services' own job/instance labels

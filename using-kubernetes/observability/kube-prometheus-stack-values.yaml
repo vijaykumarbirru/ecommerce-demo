@@ -1,0 +1,107 @@
+# kube-prometheus-stack: Prometheus + Alertmanager + Grafana + cluster metrics.
+#   helm upgrade --install kps prometheus-community/kube-prometheus-stack --version 91.8.2 \
+#     -n observability --create-namespace -f observability/kube-prometheus-stack-values.yaml
+fullnameOverride: kps            # services: kps-prometheus, kps-grafana, kps-alertmanager
+
+# kind runs these control-plane parts bound to localhost: Prometheus can't scrape them.
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    scrapeInterval: 15s
+    enableFeatures: [exemplar-storage]      # metric -> trace links
+    # Pick up ServiceMonitors / PodMonitors / PrometheusRules from every
+    # namespace and release, not only ones labelled for this chart.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 100m, memory: 400Mi }
+      limits: { memory: 1200Mi }
+    storageSpec:                            # keep metrics across pod restarts
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 5Gi } }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 128Mi }
+
+grafana:
+  defaultDashboardsEnabled: false        # only our own dashboards (Shop folder), not the ~25 built-in ones
+  # Local demo only: no login screen, everyone is admin (same as the Docker version).
+  grafana.ini:
+    server: { root_url: http://grafana.localhost }
+    auth: { disable_login_form: true }
+    auth.anonymous: { enabled: true, org_role: Admin }
+    feature_toggles: { enable: traceToMetrics }
+  persistence: { enabled: false }
+  resources:                            # Grafana 13 builds search indexes: 384Mi was OOMKilled
+    requests: { cpu: 25m, memory: 256Mi }
+    limits: { memory: 768Mi }
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL                  # dashboards from ConfigMaps labelled grafana_dashboard=1
+      folderAnnotation: grafana_folder
+      provider: { foldersFromFilesStructure: true }
+    datasources:
+      exemplarTraceIdDestinations:          # exemplar dots on graphs open the trace in Jaeger
+        datasourceUid: jaeger
+        traceIdLabelName: trace_id
+        urlDisplayLabel: View trace
+  # Loki + Jaeger, linked both ways (uids are referenced by the links).
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.observability.svc.cluster.local:3100
+      jsonData:
+        derivedFields:                   # trace_id (structured metadata) -> "View trace" button
+          - name: trace_id
+            matcherType: label
+            matcherRegex: trace_id
+            datasourceUid: jaeger
+            url: "$${__value.raw}"
+            urlDisplayLabel: View trace
+    - name: Jaeger
+      uid: jaeger
+      type: jaeger
+      url: http://jaeger.observability.svc.cluster.local:16686
+      jsonData:
+        tracesToLogsV2:                  # span -> that service's logs for the same trace
+          datasourceUid: loki
+          tags: [{ key: service.name, value: app }]
+          filterByTraceID: true
+          spanStartTimeShift: -2m
+          spanEndTimeShift: 2m
+        tracesToMetrics:                 # span -> RED metrics of that service
+          datasourceUid: prometheus
+          tags: [{ key: service.name, value: service_name }]
+          queries:
+            - name: Request rate
+              query: sum(rate(traces_span_metrics_calls_total{$$__tags}[5m]))
+            - name: Error rate
+              query: sum(rate(traces_span_metrics_calls_total{$$__tags, status_code="STATUS_CODE_ERROR"}[5m]))
+        nodeGraph: { enabled: true }
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 10m, memory: 48Mi }
+    limits: { memory: 192Mi }
+kube-state-metrics:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { memory: 64Mi }

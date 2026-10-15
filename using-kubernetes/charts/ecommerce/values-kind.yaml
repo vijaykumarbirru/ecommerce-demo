@@ -1,0 +1,10 @@
+# Overrides for the local kind cluster (layered on values.yaml).
+global:
+  imagePullPolicy: IfNotPresent   # images are loaded with `kind load docker-image`
+
+frontend:
+  route:
+    hostnames: [shop.localhost]
+
+loadgen:
+  replicas: 0      # no fake orders; scale up with --set loadgen.replicas=1

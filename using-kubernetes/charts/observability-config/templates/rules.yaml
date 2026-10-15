@@ -1,0 +1,10 @@
+{{- if .Values.alerts.enabled }}
+# Shop alert rules + SLO. The rules file is included as-is because it contains Prometheus label templates.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shop-rules
+  labels: { app.kubernetes.io/part-of: observability }
+spec:
+{{ .Files.Get "rules/shop-rules.yaml" | indent 2 }}
+{{- end }}

@@ -1,0 +1,28 @@
+# Release "obs-config" in namespace observability.
+#   helm upgrade --install obs-config charts/observability-config -n observability
+
+gateway: { name: main, namespace: traefik }
+
+# http://<host> -> service:port in this namespace
+routes:
+  grafana:      { host: grafana.localhost,      service: kps-grafana,      port: 80 }
+  prometheus:   { host: prometheus.localhost,   service: kps-prometheus,   port: 9090 }
+  alertmanager: { host: alertmanager.localhost, service: kps-alertmanager, port: 9093 }
+
+# Password the Postgres exporter logs in with (must match charts/middleware).
+middlewareMonitoring:
+  postgresPassword: postgres
+
+# Step 4.7 (alert rules + checkout SLO in rules/shop-rules.yaml) — paused; set true to apply.
+alerts:
+  enabled: false
+
+# Phase 5 (option A): also send app traces + metrics to New Relic over OTLP.
+# The license key lives in a Secret created by hand (never in this file):
+#   kubectl -n observability create secret generic newrelic-license \
+#     --from-literal=NEW_RELIC_LICENSE_KEY=<ingest license key>
+newrelic:
+  enabled: true
+  endpoint: https://otlp.eu01.nr-data.net   # US accounts: https://otlp.nr-data.net
+  licenseSecret: newrelic-license
+  clusterName: kind-ecommerce               # k8s.cluster.name on every span / metric

@@ -1,0 +1,5 @@
+{{- if .Values.mongodb.enabled }}
+{{- include "data-stores.store" (dict "ctx" . "name" "mongodb" "port" 27017 "portName" "mongodb"
+      "cfg" .Values.mongodb "storage" true "mountPath" "/data/db"
+      "probe" (list "mongosh" "--quiet" "--eval" "db.adminCommand('ping')") "env" list) }}
+{{- end }}

@@ -1,0 +1,56 @@
+# Traefik = the cluster's front door, using the Kubernetes Gateway API.
+#   helm upgrade --install traefik traefik/traefik --version 41.6.0 \
+#     -n traefik --create-namespace -f platform/traefik-values.yaml   (after: kubectl apply --server-side -f platform/gateway-api-v1.6.1-standard.yaml)
+#
+# kind maps port 80 on your Mac to port 80 on the control-plane node, so
+# Traefik runs there and listens on that node's port 80 (hostPort).
+
+deployment:
+  replicas: 1
+nodeSelector:
+  ingress-ready: "true"
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+ports:
+  web:
+    hostPort: 80        # node port 80 -> Traefik's web entrypoint (container port 8000)
+  websecure:
+    hostPort: 443
+
+service:
+  spec:
+    type: ClusterIP     # no cloud load balancer locally; hostPort does the job
+
+providers:
+  kubernetesGateway:
+    enabled: true       # read Gateway / HTTPRoute objects
+  kubernetesIngress:
+    enabled: false      # Gateway API only, no legacy Ingress
+  kubernetesCRD:
+    enabled: true
+
+# One shared Gateway; apps in any namespace attach their HTTPRoutes to it.
+gateway:
+  enabled: true
+  name: main
+  listeners:
+    web:
+      port: 8000
+      protocol: HTTP
+      namespacePolicy:
+        from: All
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+# hostPort 80 can only be held by one pod per node: stop the old pod before
+# starting the new one during upgrades (default surge would deadlock).
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0

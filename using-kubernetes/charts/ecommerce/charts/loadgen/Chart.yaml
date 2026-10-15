@@ -1,0 +1,6 @@
+apiVersion: v2
+name: loadgen
+description: "Fake shoppers — browse, add to cart and check out in a loop"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

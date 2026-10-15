@@ -1,0 +1,5 @@
+# helm upgrade --install redis-exporter prometheus-community/prometheus-redis-exporter \
+#   --version 6.32.1 -n observability -f observability/exporters/redis-values.yaml
+redisAddress: redis://redis.middleware.svc.cluster.local:6379
+serviceMonitor: { enabled: true }
+resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { memory: 64Mi } }

@@ -1,0 +1,11 @@
+The shop is deploying into namespace "{{ .Release.Namespace }}".
+
+  Watch it come up:   kubectl -n {{ .Release.Namespace }} get pods -w
+  Open the shop:      http://shop.localhost
+  Pause fake orders:  kubectl -n {{ .Release.Namespace }} scale deploy/loadgen --replicas=0
+
+Enabled parts:
+{{- range $name := list "api-gateway" "product-service" "cart-service" "order-service" "payment-service" "inventory-service" "notification-service" "frontend" "loadgen" }}
+  {{- $v := index $.Values $name }}
+  {{ if $v.enabled }}[on] {{ else }}[off]{{ end }} {{ $name }}
+{{- end }}

@@ -1,0 +1,32 @@
+image:
+  repository: ecommerce/frontend
+  tag: "0.1.1"        # 0.1.1: tool links use the *.localhost routes
+replicas: 1
+port: 80
+health: /
+startupSeconds: 20
+otel: false            # static nginx: no OpenTelemetry SDK
+
+# Where nginx forwards requests. /prom/ and /jaeger/ feed the live
+# architecture page; they're looked up lazily, so the shop starts fine
+# before the observability stack (phase 4) exists.
+apiGatewayUrl: ""        # empty = http://api-gateway.<release namespace>.svc.cluster.local:8000
+prometheusUrl: http://kps-prometheus.observability.svc.cluster.local:9090
+jaegerUrl: http://jaeger.observability.svc.cluster.local:16686
+
+# Gateway API route: http://shop.localhost -> this service
+route:
+  enabled: true
+  hostnames: [shop.localhost]
+  gateway: { name: main, namespace: traefik }
+
+volumes:
+  - name: nginx-conf
+    configMap: { name: frontend-nginx }
+volumeMounts:
+  - { name: nginx-conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+podAnnotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { memory: 64Mi }

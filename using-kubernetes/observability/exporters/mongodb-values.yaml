@@ -1,0 +1,7 @@
+# helm upgrade --install mongodb-exporter prometheus-community/prometheus-mongodb-exporter \
+#   --version 3.22.0 -n observability -f observability/exporters/mongodb-values.yaml
+mongodb:
+  uri: mongodb://mongodb.middleware.svc.cluster.local:27017
+extraArgs: [--collect-all, --compatible-mode]
+serviceMonitor: { enabled: true }
+resources: { requests: { cpu: 10m, memory: 24Mi }, limits: { memory: 128Mi } }

@@ -1,0 +1,13 @@
+.env
+node_modules/
+target/
+bin/
+obj/
+__pycache__/
+*.pyc
+.DS_Store
+.idea/
+.vscode/
+charts/ecommerce/charts/*.tgz
+charts/ecommerce/Chart.lock
+~$*

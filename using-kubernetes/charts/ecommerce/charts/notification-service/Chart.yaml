@@ -1,0 +1,6 @@
+apiVersion: v2
+name: notification-service
+description: "Notifications (Node.js, consumes order/payment events)"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

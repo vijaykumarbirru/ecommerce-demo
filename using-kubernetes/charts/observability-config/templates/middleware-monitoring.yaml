@@ -1,0 +1,32 @@
+# Credentials for the Postgres exporter (Secrets are per namespace).
+apiVersion: v1
+kind: Secret
+metadata: { name: middleware-monitoring }
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: {{ .Values.middlewareMonitoring.postgresPassword | quote }}
+---
+# RabbitMQ has a built-in Prometheus endpoint (:15692) — no exporter needed.
+# /metrics = cluster totals, /metrics/detailed?family=queue_coarse_metrics = per queue.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: { name: rabbitmq }
+spec:
+  namespaceSelector: { matchNames: [middleware] }
+  selector: { matchLabels: { app.kubernetes.io/name: rabbitmq } }
+  endpoints:
+    - { port: prometheus, path: /metrics, interval: 15s }
+    - port: prometheus
+      path: /metrics/detailed
+      params: { family: [queue_coarse_metrics] }
+      interval: 15s
+---
+# Traefik (front door): request counts and latency per route.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: { name: traefik }
+spec:
+  namespaceSelector: { matchNames: [traefik] }
+  selector: { matchLabels: { app.kubernetes.io/name: traefik } }
+  podMetricsEndpoints:
+    - { port: metrics, path: /metrics, interval: 15s }

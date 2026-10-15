@@ -1,0 +1,14 @@
+# OpenTelemetry Operator: manages OpenTelemetryCollector (and Instrumentation) objects.
+#   helm upgrade --install otel-operator open-telemetry/opentelemetry-operator --version 0.124.0 \
+#     -n observability -f observability/otel-operator-values.yaml
+manager:
+  collectorImage:
+    # contrib build: includes the spanmetrics connector and k8sattributes processor
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.160.0
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 256Mi }
+admissionWebhooks:
+  certManager: { enabled: false }     # no cert-manager in this cluster:
+  autoGenerateCert: { enabled: true } # the chart generates the webhook certificate itself

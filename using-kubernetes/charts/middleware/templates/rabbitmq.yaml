@@ -1,0 +1,10 @@
+{{- if .Values.rabbitmq.enabled }}
+{{- $sec := .Values.global.credentialsSecret }}
+{{- include "data-stores.store" (dict "ctx" . "name" "rabbitmq" "port" 5672 "portName" "amqp"
+      "extraPorts" (list (dict "name" "management" "port" 15672) (dict "name" "prometheus" "port" 15692))
+      "cfg" .Values.rabbitmq "storage" true "mountPath" "/var/lib/rabbitmq"
+      "probe" (list "rabbitmq-diagnostics" "-q" "ping")
+      "env" (list
+        (dict "name" "RABBITMQ_DEFAULT_USER" "valueFrom" (dict "secretKeyRef" (dict "name" $sec "key" "RABBITMQ_USER")))
+        (dict "name" "RABBITMQ_DEFAULT_PASS" "valueFrom" (dict "secretKeyRef" (dict "name" $sec "key" "RABBITMQ_PASSWORD"))))) }}
+{{- end }}

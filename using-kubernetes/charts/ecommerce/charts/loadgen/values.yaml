@@ -1,0 +1,16 @@
+# Pause the fake orders:  helm upgrade ... --set loadgen.replicas=0
+# (or: kubectl -n shop scale deploy/loadgen --replicas=0)
+image:
+  repository: ecommerce/loadgen
+  tag: ""
+replicas: 0
+port: null             # no Service, no probes
+otel: false
+waitFor:
+  - api-gateway:8000
+env:
+  GATEWAY_URL: http://api-gateway:8000
+  LOADGEN_SLEEP: "1"   # seconds between shopper sessions
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { memory: 64Mi }

@@ -1,0 +1,24 @@
+# cart-service — Node.js / Redis
+image:
+  repository: ecommerce/cart-service
+  tag: ""            # empty = global.imageTag
+replicas: 1
+port: 8002
+health: /health
+startupSeconds: 40   # how long the startup probe waits before giving up
+otel: true           # inject OTEL_* env (endpoint, service name, k8s pod attributes)
+
+# Dependencies to wait for (init containers) — Kubernetes has no depends_on.
+waitFor: 
+  - "{{ .Values.global.hosts.redis }}:6379"
+
+# Keys read from the shared credentials Secret (global.credentialsSecret).
+secretEnv: []
+
+# Plain settings. $(VAR) expands other env vars, e.g. secret values above.
+env: 
+  REDIS_URL: "redis://{{ .Values.global.hosts.redis }}:6379"
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 192Mi }

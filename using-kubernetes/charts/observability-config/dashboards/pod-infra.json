@@ -1,0 +1,1267 @@
+{
+ "uid": "pod-infra",
+ "title": "Pod Infra",
+ "tags": [
+  "kubernetes",
+  "capacity"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "refresh": "1m",
+ "templating": {
+  "list": [
+   {
+    "name": "namespace",
+    "label": "Namespace",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "prometheus"
+    },
+    "query": {
+     "query": "label_values(kube_pod_info, namespace)",
+     "refId": "ns"
+    },
+    "definition": "label_values(kube_pod_info, namespace)",
+    "multi": true,
+    "includeAll": true,
+    "current": {
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
+    },
+    "refresh": 2,
+    "sort": 1
+   },
+   {
+    "name": "pod",
+    "label": "Pod",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "prometheus"
+    },
+    "query": {
+     "query": "label_values(kube_pod_info{namespace=~\"$namespace\"}, pod)",
+     "refId": "pod"
+    },
+    "definition": "label_values(kube_pod_info{namespace=~\"$namespace\"}, pod)",
+    "multi": true,
+    "includeAll": true,
+    "current": {
+     "text": "All",
+     "value": "$__all"
+    },
+    "refresh": 2,
+    "sort": 1
+   }
+  ]
+ },
+ "panels": [
+  {
+   "type": "table",
+   "title": "Per service \u2014 requests, limits and usage (% of request, over the selected time range)",
+   "description": "One row per Deployment / StatefulSet / DaemonSet. Requests and limits are per pod (the chart value). Avg % = average across the service's pods and over time; Max % = highest any pod reached. Percentages are usage \u00f7 request. Blue < 30% over-reserved \u00b7 green 30\u2013100% \u00b7 orange 100\u2013150% \u00b7 red > 150% under-reserved. 'none' = not set. Containers without a request (e.g. sidecars) are left out of the % so they don't inflate it.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 14,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "count by (namespace, workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "B",
+     "expr": "max by (namespace, workload) ((sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"cpu\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))) * 1000",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "C",
+     "expr": "max by (namespace, workload) ((sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$namespace\", resource=\"cpu\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))) * 1000",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "D",
+     "expr": "(avg_over_time((avg by (namespace, workload) ((sum by (namespace, pod) ((rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\"}[2m]) and on (namespace, pod, container) kube_pod_container_resource_requests{resource=\"cpu\"})) / sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"cpu\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))) * 100)[$__range:1m])) and on (namespace, workload) (count by (namespace, workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1)))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "E",
+     "expr": "(max_over_time((max by (namespace, workload) ((sum by (namespace, pod) ((rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\"}[2m]) and on (namespace, pod, container) kube_pod_container_resource_requests{resource=\"cpu\"})) / sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"cpu\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))) * 100)[$__range:1m])) and on (namespace, workload) (count by (namespace, workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1)))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "F",
+     "expr": "max by (namespace, workload) ((sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"memory\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1)))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "G",
+     "expr": "max by (namespace, workload) ((sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$namespace\", resource=\"memory\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1)))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "H",
+     "expr": "(avg_over_time((avg by (namespace, workload) ((sum by (namespace, pod) ((container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\"} and on (namespace, pod, container) kube_pod_container_resource_requests{resource=\"memory\"})) / sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"memory\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))) * 100)[$__range:1m])) and on (namespace, workload) (count by (namespace, workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1)))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "I",
+     "expr": "(max_over_time((max by (namespace, workload) ((sum by (namespace, pod) ((container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\"} and on (namespace, pod, container) kube_pod_container_resource_requests{resource=\"memory\"})) / sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"memory\"})) * on (namespace, pod) group_left (workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1))) * 100)[$__range:1m])) and on (namespace, workload) (count by (namespace, workload) (max by (namespace, pod, workload) (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=~\"StatefulSet|DaemonSet\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\") or (label_replace(kube_pod_owner{namespace=~\"$namespace\", owner_kind=\"ReplicaSet\"}, \"replicaset\", \"$1\", \"owner_name\", \"(.*)\") * on (namespace, replicaset) group_left (workload) max by (namespace, replicaset, workload) (label_replace(kube_replicaset_owner{namespace=~\"$namespace\", owner_kind=\"Deployment\"}, \"workload\", \"$1\", \"owner_name\", \"(.*)\")))) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"}) == 1)))",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true
+      },
+      "renameByName": {
+       "workload": "Service",
+       "namespace": "Namespace"
+      },
+      "indexByName": {
+       "namespace": 0,
+       "workload": 1,
+       "Value #A": 2,
+       "Value #B": 3,
+       "Value #C": 4,
+       "Value #D": 5,
+       "Value #E": 6,
+       "Value #F": 7,
+       "Value #G": 8,
+       "Value #H": 9,
+       "Value #I": 10
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "Namespace"
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true
+     },
+     "noValue": "\u2014"
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #A"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Pods"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 70
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #B"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "cpu-req"
+       },
+       {
+        "id": "unit",
+        "value": "suffix: m"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 100
+       },
+       {
+        "id": "noValue",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #C"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "cpu-limit"
+       },
+       {
+        "id": "unit",
+        "value": "suffix: m"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 100
+       },
+       {
+        "id": "noValue",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #D"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Avg CPU %"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "blue",
+           "value": null
+          },
+          {
+           "color": "green",
+           "value": 30
+          },
+          {
+           "color": "orange",
+           "value": 100
+          },
+          {
+           "color": "red",
+           "value": 150
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #E"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Max CPU %"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "blue",
+           "value": null
+          },
+          {
+           "color": "green",
+           "value": 30
+          },
+          {
+           "color": "orange",
+           "value": 100
+          },
+          {
+           "color": "red",
+           "value": 150
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #F"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "mem-req"
+       },
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "noValue",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #G"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "mem-limit"
+       },
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "noValue",
+        "value": "none"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #H"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Avg Mem %"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "blue",
+           "value": null
+          },
+          {
+           "color": "green",
+           "value": 30
+          },
+          {
+           "color": "orange",
+           "value": 100
+          },
+          {
+           "color": "red",
+           "value": 150
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #I"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Max Mem %"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "blue",
+           "value": null
+          },
+          {
+           "color": "green",
+           "value": 30
+          },
+          {
+           "color": "orange",
+           "value": 100
+          },
+          {
+           "color": "red",
+           "value": 150
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Service"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 260
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   }
+  },
+  {
+   "type": "table",
+   "title": "Requests, limits and actual usage per running pod (over the selected time range)",
+   "description": "CPU in millicores (1000m = 1 core); 'no limit' = no limit set. Avg / max sampled every minute across the time range. % of request: blue < 30% (over-reserved), green 30\u2013100%, orange 100\u2013150%, red > 150% (under-reserved). Memory % of limit: green < 75%, orange 75\u201390%, red > 90% (close to being OOMKilled).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 17,
+    "w": 24,
+    "x": 0,
+    "y": 14
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "(sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"cpu\"}) * 1000) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "B",
+     "expr": "(avg_over_time((sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}[2m])))[$__range:1m]) * 1000) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "C",
+     "expr": "(max_over_time((sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}[2m])))[$__range:1m]) * 1000) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "D",
+     "expr": "(max_over_time((sum by (namespace, pod) ((rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}[2m]) and on (namespace, pod, container) kube_pod_container_resource_requests{resource=\"cpu\"})))[$__range:1m]) / sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"cpu\"}) * 100) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "E",
+     "expr": "(sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"memory\"})) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "F",
+     "expr": "(avg_over_time((sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}))[$__range:1m])) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "G",
+     "expr": "(max_over_time((sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}))[$__range:1m])) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "H",
+     "expr": "(max_over_time((sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}))[$__range:1m]) / sum by (namespace, pod) (kube_pod_container_resource_requests{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"memory\"}) * 100) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "I",
+     "expr": "(sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"cpu\"}) * 1000) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "J",
+     "expr": "(sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"memory\"})) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "K",
+     "expr": "(max_over_time((sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}))[$__range:1m]) / sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$namespace\", pod=~\"$pod\", resource=\"memory\"}) * 100) and on (namespace, pod) (kube_pod_status_phase{namespace=~\"$namespace\", pod=~\"$pod\", phase=\"Running\"} == 1)",
+     "instant": true,
+     "format": "table",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true
+      },
+      "indexByName": {
+       "namespace": 0,
+       "pod": 1,
+       "Value #A": 2,
+       "Value #I": 3,
+       "Value #B": 4,
+       "Value #C": 5,
+       "Value #D": 6,
+       "Value #E": 7,
+       "Value #J": 8,
+       "Value #F": 9,
+       "Value #G": 10,
+       "Value #H": 11,
+       "Value #K": 12
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "Value #G",
+        "desc": true
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true
+     },
+     "noValue": "\u2014"
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #A"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "CPU request"
+       },
+       {
+        "id": "unit",
+        "value": "suffix: m"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 120
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #B"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "CPU avg"
+       },
+       {
+        "id": "unit",
+        "value": "suffix: m"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 120
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #C"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "CPU max"
+       },
+       {
+        "id": "unit",
+        "value": "suffix: m"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 120
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #D"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "CPU max % of request"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 190
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "blue",
+           "value": null
+          },
+          {
+           "color": "green",
+           "value": 30
+          },
+          {
+           "color": "orange",
+           "value": 100
+          },
+          {
+           "color": "red",
+           "value": 150
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #E"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Memory request"
+       },
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 130
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #F"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Memory avg"
+       },
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 130
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #G"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Memory max"
+       },
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 130
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #H"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Memory max % of request"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 190
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "blue",
+           "value": null
+          },
+          {
+           "color": "green",
+           "value": 30
+          },
+          {
+           "color": "orange",
+           "value": 100
+          },
+          {
+           "color": "red",
+           "value": 150
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "pod"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 330
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "namespace"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 120
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #I"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "CPU limit"
+       },
+       {
+        "id": "unit",
+        "value": "suffix: m"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       },
+       {
+        "id": "noValue",
+        "value": "no limit"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #J"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Memory limit"
+       },
+       {
+        "id": "unit",
+        "value": "bytes"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 120
+       },
+       {
+        "id": "noValue",
+        "value": "no limit"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value #K"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Memory max % of limit"
+       },
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.width",
+        "value": 180
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 75
+          },
+          {
+           "color": "red",
+           "value": 90
+          }
+         ]
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "CPU usage per pod (millicores)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 0,
+    "y": 31
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"}[2m])) * 1000",
+     "legendFormat": "{{pod}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "suffix: m",
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "mean",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Memory usage per pod (working set)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 12,
+    "y": 31
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"\"})",
+     "legendFormat": "{{pod}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "mean",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  }
+ ]
+}

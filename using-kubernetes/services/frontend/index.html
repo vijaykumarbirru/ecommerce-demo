@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShopSphere — Electronics & Accessories</title>
+<style>
+  :root {
+    --nav: #131921; --nav2: #232f3e; --nav-hover: #37475a;
+    --accent: #febd69; --cta: #ffd814; --cta-border: #fcd200; --cta-hover: #f7ca00;
+    --buy: #ffa41c; --buy-hover: #fa8900;
+    --bg: #eaeded; --card: #fff; --text: #0f1111; --muted: #565959; --line: #d5d9d9;
+    --link: #007185; --link-hover: #c7511f; --ok: #067d62; --bad: #b12704; --star: #ffa41c;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font: 14px/1.45 "Amazon Ember", Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); }
+  button { font: inherit; cursor: pointer; }
+  a { color: var(--link); text-decoration: none; cursor: pointer; }
+  a:hover { color: var(--link-hover); text-decoration: underline; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  /* ---------- Header ---------- */
+  .topbar { background: var(--nav); color: #fff; display: flex; align-items: center; gap: 6px; padding: 8px 12px; position: sticky; top: 0; z-index: 30; flex-wrap: wrap; }
+  .navbox { border: 1px solid transparent; border-radius: 2px; padding: 6px 8px; color: #fff; background: none; text-align: left; line-height: 1.15; white-space: nowrap; }
+  .navbox:hover { border-color: #fff; }
+  .navbox small { display: block; color: #ccc; font-size: 12px; }
+  .navbox b { font-size: 14px; }
+  .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; display: flex; align-items: flex-end; gap: 2px; }
+  .logo span { color: var(--accent); }
+  .logo .dot { width: 7px; height: 7px; background: var(--accent); border-radius: 50%; margin-bottom: 7px; }
+  .search { flex: 1 1 380px; display: flex; height: 40px; border-radius: 6px; overflow: hidden; min-width: 0; order: 0; }
+  .search:focus-within { box-shadow: 0 0 0 3px var(--buy); }
+  .search select { border: 0; background: #e6e6e6; color: #555; padding: 0 8px; font-size: 12px; border-right: 1px solid #cdcdcd; max-width: 130px; }
+  .search input { flex: 1; border: 0; padding: 0 10px; font-size: 15px; min-width: 0; outline: none; }
+  .search button { border: 0; background: var(--accent); width: 46px; display: grid; place-items: center; }
+  .search button:hover { background: #f3a847; }
+  .cartbtn { display: flex; align-items: flex-end; gap: 2px; font-weight: 700; position: relative; }
+  .cartbtn svg { width: 38px; height: 30px; }
+  .cartcount { position: absolute; left: 22px; top: 0; color: var(--buy); font-size: 16px; font-weight: 700; width: 20px; text-align: center; }
+  .subnav { background: var(--nav2); color: #fff; display: flex; gap: 2px; padding: 4px 10px; overflow-x: auto; scrollbar-width: none; }
+  .subnav button { background: none; border: 1px solid transparent; color: #fff; padding: 6px 9px; border-radius: 2px; white-space: nowrap; font-size: 14px; }
+  .subnav button:hover, .subnav button.on { border-color: #fff; }
+  .subnav .tools { margin-left: auto; display: flex; gap: 2px; }
+  .subnav .tools a { color: #fff; padding: 6px 9px; font-size: 13px; white-space: nowrap; border: 1px solid transparent; }
+  .subnav .tools a:hover { border-color: #fff; text-decoration: none; }
+  @media (max-width: 720px) {
+    .search { order: 5; flex-basis: 100%; }
+    .hide-sm { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero { position: relative; height: 380px; overflow: hidden; background: linear-gradient(120deg, #0f2027, #203a43 45%, #2c5364); }
+  .hero::after { content: ""; position: absolute; inset: auto 0 0 0; height: 160px; background: linear-gradient(transparent, var(--bg)); }
+  .hero-inner { position: relative; z-index: 1; max-width: 1500px; margin: 0 auto; padding: 40px 32px; color: #fff; display: flex; justify-content: space-between; gap: 24px; }
+  .hero h1 { font-size: clamp(24px, 4vw, 40px); margin: 0 0 8px; line-height: 1.1; }
+  .hero p { margin: 0 0 18px; font-size: 16px; color: #d7e3ea; max-width: 520px; }
+  .hero .pill { display: inline-block; background: var(--accent); color: #111; font-weight: 700; padding: 3px 10px; border-radius: 4px; font-size: 12px; margin-bottom: 12px; }
+  .hero-art { display: flex; gap: 14px; align-items: center; }
+  .hero-art .tile { width: 120px; height: 120px; border-radius: 16px; background: rgba(255,255,255,.08); backdrop-filter: blur(4px); display: grid; place-items: center; border: 1px solid rgba(255,255,255,.15); }
+  .hero-art .tile svg { width: 70px; height: 70px; }
+  @media (max-width: 900px) { .hero-art { display: none; } .hero { height: 340px; } }
+
+  /* ---------- Layout ---------- */
+  .wrap { max-width: 1500px; margin: -110px auto 0; padding: 0 16px 40px; position: relative; z-index: 2; }
+  .cards4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 18px; }
+  .promo { background: var(--card); padding: 18px; border-radius: 2px; }
+  @media (max-width: 720px) {
+    /* Phones: promo cards become a horizontal swipe row. */
+    .cards4 { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 12px; padding-bottom: 4px; scrollbar-width: none; }
+    .cards4 .promo { flex: 0 0 78%; scroll-snap-align: start; }
+    .wrap { margin-top: -70px; }
+  }
+  .promo h3 { margin: 0 0 10px; font-size: 19px; }
+  .promo .mini { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .promo .mini div { cursor: pointer; }
+  .promo .mini .img { aspect-ratio: 1; border-radius: 4px; display: grid; place-items: center; }
+  .promo .mini .img svg { width: 55%; height: 55%; }
+  .promo .mini small { display: block; font-size: 12px; margin-top: 3px; color: var(--text); }
+  .promo .signin { background: var(--cta); border: 1px solid var(--cta-border); border-radius: 8px; padding: 7px; width: 100%; margin-top: 8px; }
+
+  .panel { background: var(--card); padding: 18px 20px; border-radius: 2px; }
+  .results-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .results-head h2 { font-size: 20px; margin: 0; display: inline; }
+  .results-head .count { color: var(--muted); font-size: 14px; }
+  .sort { background: #f0f2f2; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font-size: 13px; box-shadow: 0 2px 5px rgba(15,17,17,.15); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .prod { border: 1px solid #e7e7e7; border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; background: #fff; transition: box-shadow .15s; }
+  .prod:hover { box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+  .prod .img { aspect-ratio: 4/3; display: grid; place-items: center; cursor: pointer; position: relative; }
+  .prod .img svg { width: 46%; height: 60%; transition: transform .2s; }
+  .prod:hover .img svg { transform: scale(1.06); }
+  .badge { position: absolute; top: 10px; left: 0; background: #cc0c39; color: #fff; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 0 3px 3px 0; }
+  .badge.choice { background: #232f3e; }
+  .badge.choice b { color: var(--buy); }
+  .prod .body { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .prod .title { font-size: 16px; line-height: 1.3; color: var(--text); cursor: pointer; }
+  .prod .title:hover { color: var(--link-hover); }
+  .rating { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+  .rating a { color: var(--link); }
+  .stars { display: inline-flex; }
+  .stars svg { width: 15px; height: 15px; }
+  .bought { font-size: 12px; color: var(--muted); }
+  .price { display: flex; align-items: flex-start; gap: 1px; margin-top: 4px; }
+  .price .sym, .price .frac { font-size: 13px; position: relative; top: 3px; }
+  .price .whole { font-size: 28px; line-height: 1; font-weight: 400; }
+  .listprice { font-size: 12px; color: var(--muted); }
+  .listprice s { color: var(--muted); }
+  .delivery { font-size: 13px; }
+  .delivery b { font-weight: 700; }
+  .stock { font-size: 13px; color: var(--ok); }
+  .stock.low { color: var(--bad); }
+  .btn { border-radius: 100px; border: 1px solid; padding: 7px 14px; font-size: 13px; }
+  .btn-cart { background: var(--cta); border-color: var(--cta-border); color: var(--text); }
+  .btn-cart:hover { background: var(--cta-hover); }
+  .btn-buy { background: var(--buy); border-color: #ff8f00; }
+  .btn-buy:hover { background: var(--buy-hover); }
+  .btn-ghost { background: #fff; border-color: var(--line); box-shadow: 0 2px 5px rgba(213,217,217,.5); }
+  .btn-ghost:hover { background: #f7fafa; }
+  .btn[disabled] { opacity: .55; cursor: default; }
+  .prod .btn-cart { margin-top: auto; align-self: flex-start; }
+  .empty { padding: 50px 20px; text-align: center; color: var(--muted); }
+
+  /* skeleton */
+  .skel { background: linear-gradient(90deg, #f0f0f0 25%, #e5e5e5 37%, #f0f0f0 63%); background-size: 400% 100%; animation: sk 1.4s ease infinite; border-radius: 4px; }
+  @keyframes sk { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+  /* ---------- Drawer & modal ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(420px, 100%); background: #fff; z-index: 50; transform: translateX(100%); transition: transform .25s ease; display: flex; flex-direction: column; }
+  .drawer.on { transform: none; }
+  .drawer header { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  .drawer header h2 { margin: 0; font-size: 20px; font-weight: 400; }
+  .x { background: none; border: 0; font-size: 26px; line-height: 1; color: var(--muted); padding: 0 4px; }
+  .drawer .items { flex: 1; overflow-y: auto; padding: 8px 20px; }
+  .line { display: grid; grid-template-columns: 76px 1fr; gap: 12px; padding: 14px 0; border-bottom: 1px solid #eee; }
+  .line .thumb { width: 76px; height: 76px; border-radius: 6px; display: grid; place-items: center; }
+  .line .thumb svg { width: 60%; height: 60%; }
+  .line .name { font-size: 15px; }
+  .line .lp { font-weight: 700; font-size: 16px; margin: 2px 0 6px; }
+  .qty { display: inline-flex; align-items: center; border: 2px solid var(--cta); border-radius: 100px; overflow: hidden; }
+  .qty button { background: none; border: 0; width: 30px; height: 28px; font-size: 16px; font-weight: 700; }
+  .qty button:hover { background: #fff8d6; }
+  .qty span { min-width: 26px; text-align: center; font-weight: 700; }
+  .line .actions { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+  .drawer footer { border-top: 1px solid var(--line); padding: 16px 20px; background: #f7f8f8; }
+  .subtotal { font-size: 18px; margin-bottom: 4px; }
+  .freeship { color: var(--ok); font-size: 13px; margin-bottom: 10px; display: flex; gap: 6px; align-items: center; }
+  .drawer footer .btn { width: 100%; padding: 9px; }
+
+  .modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; pointer-events: none; }
+  .modal .box { background: #fff; border-radius: 8px; width: min(900px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,.3); transform: scale(.96); opacity: 0; transition: .18s; pointer-events: none; position: relative; }
+  .modal.on .box { transform: none; opacity: 1; pointer-events: auto; }
+  .modal .x { position: absolute; top: 10px; right: 14px; z-index: 1; }
+  .detail { display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; padding: 28px; }
+  @media (max-width: 720px) { .detail { grid-template-columns: 1fr; padding: 20px; } }
+  .detail .hero-img { aspect-ratio: 1; border-radius: 8px; display: grid; place-items: center; }
+  .detail .hero-img svg { width: 55%; height: 55%; }
+  .detail h2 { font-size: 22px; font-weight: 400; margin: 0 0 6px; line-height: 1.3; }
+  .detail hr { border: 0; border-top: 1px solid #e7e7e7; margin: 12px 0; }
+  .detail ul { padding-left: 18px; margin: 8px 0; }
+  .detail li { margin-bottom: 4px; }
+  .buybox { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .buybox select { border: 1px solid var(--line); border-radius: 8px; background: #f0f2f2; padding: 6px 8px; box-shadow: 0 2px 5px rgba(15,17,17,.15); width: fit-content; }
+  .buybox .btn { padding: 9px; }
+  .secure { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .checkout { padding: 28px; }
+  .checkout h2 { margin: 0 0 16px; font-weight: 400; font-size: 26px; }
+  .co-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+  @media (max-width: 720px) { .co-grid { grid-template-columns: 1fr; } }
+  .co-step { border-bottom: 1px solid #ddd; padding: 12px 0; display: grid; grid-template-columns: 26px 160px 1fr; gap: 8px; }
+  @media (max-width: 520px) { .co-step { grid-template-columns: 26px 1fr; } .co-step > :last-child { grid-column: 2; } }
+  .co-step b { font-size: 17px; }
+  .summary { border: 1px solid var(--line); border-radius: 8px; padding: 16px; height: fit-content; }
+  .summary .row { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; }
+  .summary .total { color: var(--bad); font-weight: 700; font-size: 18px; border-top: 1px solid #ddd; padding-top: 8px; margin-top: 8px; }
+  .summary .btn { width: 100%; padding: 9px; margin-bottom: 10px; }
+
+  .confirm { padding: 40px 28px; text-align: center; }
+  .confirm .big { width: 70px; height: 70px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 16px; }
+  .confirm h2 { margin: 0 0 6px; font-size: 24px; }
+  .track { display: flex; justify-content: center; gap: 0; margin: 28px auto 8px; max-width: 520px; }
+  .track .st { flex: 1; text-align: center; font-size: 12px; color: var(--muted); position: relative; }
+  .track .st::before { content: ""; position: absolute; top: 11px; left: -50%; width: 100%; height: 3px; background: #ddd; z-index: 0; }
+  .track .st:first-child::before { display: none; }
+  .track .st i { width: 24px; height: 24px; border-radius: 50%; background: #ddd; display: grid; place-items: center; margin: 0 auto 6px; position: relative; z-index: 1; font-style: normal; color: #fff; font-size: 13px; }
+  .track .st.done { color: var(--text); }
+  .track .st.done i, .track .st.done::before { background: var(--ok); }
+  .track .st.fail i, .track .st.fail::before { background: var(--bad); }
+  .track .st.live i { background: var(--buy); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(255,164,28,.3); } }
+
+  /* ---------- Orders page ---------- */
+  .orders-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .orders-head h1 { font-size: 28px; font-weight: 400; margin: 0; }
+  .tabs { display: flex; gap: 18px; border-bottom: 1px solid #ddd; margin-bottom: 16px; }
+  .tabs button { background: none; border: 0; padding: 8px 2px; border-bottom: 3px solid transparent; color: var(--link); }
+  .tabs button.on { border-bottom-color: var(--buy); color: var(--text); font-weight: 700; }
+  .order { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+  .order .oh { background: #f0f2f2; padding: 12px 18px; display: flex; gap: 28px; flex-wrap: wrap; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  .order .oh b { display: block; color: var(--text); font-size: 13px; text-transform: none; font-weight: 400; }
+  .order .oh .num { margin-left: auto; text-align: right; }
+  .order .ob { padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .status { font-weight: 700; font-size: 17px; }
+  .status.PAID { color: var(--ok); }
+  .status.PAYMENT_FAILED { color: var(--bad); }
+  .status.PENDING_PAYMENT { color: #c45500; }
+  .order .itemsrow { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 18px 14px; }
+  .chip { display: flex; align-items: center; gap: 8px; border: 1px solid #eee; border-radius: 6px; padding: 4px 10px 4px 4px; font-size: 13px; }
+  .chip .t { width: 36px; height: 36px; border-radius: 4px; display: grid; place-items: center; }
+  .chip .t svg { width: 60%; height: 60%; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; z-index: 70; background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.25); padding: 12px 16px; display: flex; align-items: center; gap: 10px; transform: translate(-50%, 20px); opacity: 0; transition: .2s; pointer-events: none; max-width: calc(100% - 32px); }
+  .toast.on { transform: translate(-50%, 0); opacity: 1; }
+  .toast .ic { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+
+  .foot { background: var(--nav2); color: #ddd; text-align: center; padding: 26px 16px; font-size: 13px; margin-top: 10px; }
+  .foot .top { display: block; background: var(--nav-hover); color: #fff; padding: 14px; margin: -26px -16px 22px; cursor: pointer; }
+  .foot .top:hover { background: #485769; }
+  .foot a { color: #ddd; margin: 0 10px; }
+  /* Phone overrides — kept last so they win over the base rules above. */
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .prod .body { padding: 8px 10px 12px; }
+    .prod .title { font-size: 14px; }
+    .price .whole { font-size: 22px; }
+    .panel { padding: 14px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="navbox logo" id="home" aria-label="ShopSphere home">shop<span>sphere</span><i class="dot"></i></a>
+  <button class="navbox hide-sm" type="button"><small>Deliver to</small><b>📍 Demo City</b></button>
+  <form class="search" id="searchForm" role="search">
+    <label class="sr" for="cat">Category</label>
+    <select id="cat"><option value="">All</option></select>
+    <label class="sr" for="q">Search</label>
+    <input id="q" type="search" placeholder="Search ShopSphere" autocomplete="off">
+    <button aria-label="Search"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+  </form>
+  <button class="navbox hide-sm" type="button"><small>Hello, Demo shopper</small><b>Account & Lists ▾</b></button>
+  <button class="navbox" type="button" id="ordersBtn"><small>Returns</small><b>& Orders</b></button>
+  <button class="navbox cartbtn" type="button" id="cartBtn" aria-label="Open cart">
+    <span class="cartcount" id="cartCount">0</span>
+    <svg viewBox="0 0 40 30" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M2 4h6l4 17h20l4-12H11"/><circle cx="15" cy="26" r="2" fill="#fff"/><circle cx="29" cy="26" r="2" fill="#fff"/></svg>
+    <span>Cart</span>
+  </button>
+</header>
+
+<nav class="subnav" id="subnav">
+  <button data-cat="" class="on">☰ All</button>
+  <button data-deal="1">Today's Deals</button>
+  <div class="tools">
+    <a href="/architecture" style="color:var(--accent);font-weight:700">🏗 Architecture & Journey</a>
+    <a href="http://grafana.localhost" target="_blank" rel="noopener">📊 Grafana</a>
+    <a href="http://jaeger.localhost" target="_blank" rel="noopener">🔍 Jaeger</a>
+    <a href="http://prometheus.localhost" target="_blank" rel="noopener">📈 Prometheus</a>
+    <a href="http://rabbitmq.localhost" target="_blank" rel="noopener">🐇 RabbitMQ</a>
+  </div>
+</nav>
+
+<main id="shopView">
+  <section class="hero">
+    <div class="hero-inner">
+      <div>
+        <span class="pill">OBSERVABILITY EDITION</span>
+        <h1>Gear up your workspace</h1>
+        <p>Every click on this page becomes a distributed trace across Go, Python, Node.js, Java and .NET. Shop here, then follow your order in Jaeger.</p>
+        <button class="btn btn-cart" type="button" id="heroShop" style="padding:10px 22px;font-size:15px">Shop deals</button>
+      </div>
+      <div class="hero-art" id="heroArt"></div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="cards4" id="promos"></div>
+    <section class="panel">
+      <div class="results-head">
+        <div><h2 id="resultsTitle">Results</h2><span class="count" id="resultsCount"></span></div>
+        <label>Sort by:
+          <select class="sort" id="sort">
+            <option value="featured">Featured</option>
+            <option value="low">Price: Low to High</option>
+            <option value="high">Price: High to Low</option>
+            <option value="rating">Avg. Customer Review</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid" id="grid"></div>
+    </section>
+  </div>
+</main>
+
+<main id="ordersView" hidden>
+  <div class="wrap" style="margin-top:20px">
+    <section class="panel">
+      <div class="orders-head">
+        <h1>Your Orders</h1>
+        <a id="backToShop">← Continue shopping</a>
+      </div>
+      <div class="tabs">
+        <button class="on" data-scope="mine">Orders placed by you</button>
+        <button data-scope="all">All store activity (live)</button>
+      </div>
+      <div id="ordersList"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <span class="top" id="toTop">Back to top</span>
+  <div><a href="/architecture">How this store works</a><a>Conditions of Use</a><a>Privacy Notice</a></div>
+  <p style="margin:14px 0 0">ShopSphere is a fictional demo store for an observability lab. No real orders, payments or deliveries.</p>
+</footer>
+
+<div class="scrim" id="scrim"></div>
+
+<aside class="drawer" id="drawer" aria-label="Shopping cart">
+  <header><h2>Shopping Cart</h2><button class="x" type="button" data-close aria-label="Close">×</button></header>
+  <div class="items" id="cartItems"></div>
+  <footer id="cartFoot"></footer>
+</aside>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true">
+  <div class="box"><button class="x" type="button" data-close aria-label="Close">×</button><div id="modalBody"></div></div>
+</div>
+
+<div class="toast" id="toast"><span class="ic" id="toastIc"></span><span id="toastMsg"></span></div>
+
+<script>
+/* ===================== Config & catalog extras ===================== */
+const USER = 'web-user';
+const FREE_SHIP = 35;
+
+// The catalog API returns id/name/price/category; marketing copy and
+// visuals live here in the UI layer.
+const EXTRA = {
+  p1: { bg: ['#e8f0fe', '#c6dafc'], list: 119.99, badge: 'deal', bullets: ['Hot-swappable tactile switches', 'Per-key RGB backlight', 'Aluminium top plate, USB-C detachable cable'] },
+  p2: { bg: ['#fef3e2', '#fde1b8'], list: 39.99, badge: 'choice', bullets: ['Silent clicks, 4000 DPI sensor', '70-day battery on one AA', 'Pairs with up to 3 devices'] },
+  p3: { bg: ['#e6f4ea', '#c4e6cf'], list: 329.00, badge: 'deal', bullets: ['27" IPS, 2560×1440, 144 Hz', 'HDR400, 99% sRGB', 'Height & tilt adjustable stand'] },
+  p4: { bg: ['#f3e8fd', '#e0c8fa'], list: null, bullets: ['7-in-1: HDMI 4K, 3× USB-A, SD, PD 100W', 'Aluminium shell', 'Plug & play on macOS, Windows, Linux'] },
+  p5: { bg: ['#fde8ec', '#f9c6d0'], list: 59.00, bullets: ['Fits 10"–17" laptops', '6 height levels, folds flat', 'Ventilated aluminium design'] },
+  p6: { bg: ['#e0f7fa', '#b2ebf2'], list: 279.00, badge: 'choice', bullets: ['Adaptive active noise cancelling', '35-hour battery, fast charge', 'Multipoint Bluetooth 5.3'] },
+  p7: { bg: ['#fff8e1', '#ffe8a3'], list: null, bullets: ['Full HD 1080p at 30fps', 'Dual noise-reducing mics', 'Privacy shutter included'] },
+  p8: { bg: ['#ede7f6', '#d4c6ee'], list: 34.99, bullets: ['Dimmable, 5 colour temperatures', 'Eye-care flicker-free LED', 'USB charging port in base'] },
+};
+
+const ICON = {
+  p1: '<rect x="6" y="22" width="52" height="22" rx="4" fill="#3c4043"/><g fill="#9aa0a6">' + [...Array(10)].map((_, i) => `<rect x="${10 + i * 4.6}" y="26" width="3.4" height="3.4" rx=".6"/><rect x="${10 + i * 4.6}" y="31" width="3.4" height="3.4" rx=".6"/>`).join('') + '<rect x="18" y="37" width="28" height="3.4" rx=".8"/></g>',
+  p2: '<path d="M32 10c-9 0-15 7-15 17v10c0 10 6 17 15 17s15-7 15-17V27c0-10-6-17-15-17z" fill="#3c4043"/><path d="M32 10v15" stroke="#9aa0a6" stroke-width="2"/><rect x="30.5" y="16" width="3" height="6" rx="1.5" fill="#febd69"/>',
+  p3: '<rect x="6" y="10" width="52" height="32" rx="3" fill="#3c4043"/><rect x="9" y="13" width="46" height="26" fill="#8ab4f8"/><path d="M9 33l12-10 9 7 8-5 17 10v4H9z" fill="#5c8fd6"/><rect x="29" y="42" width="6" height="7" fill="#5f6368"/><rect x="20" y="49" width="24" height="3" rx="1.5" fill="#3c4043"/>',
+  p4: '<rect x="12" y="20" width="40" height="18" rx="5" fill="#9aa0a6"/><rect x="16" y="26" width="6" height="5" rx="1" fill="#3c4043"/><rect x="25" y="26" width="6" height="5" rx="1" fill="#3c4043"/><rect x="34" y="26" width="6" height="5" rx="1" fill="#3c4043"/><rect x="43" y="26" width="5" height="3" rx="1" fill="#3c4043"/><path d="M32 38v8c0 4 3 6 7 6h6" stroke="#3c4043" stroke-width="3" fill="none"/>',
+  p5: '<path d="M14 46l14-26h8l14 26" stroke="#9aa0a6" stroke-width="4" fill="none" stroke-linecap="round"/><rect x="10" y="16" width="44" height="5" rx="2" fill="#5f6368" transform="rotate(-8 32 18)"/><rect x="14" y="8" width="34" height="9" rx="1" fill="#3c4043" transform="rotate(-8 32 12)"/>',
+  p6: '<path d="M14 36v-6a18 18 0 0 1 36 0v6" stroke="#3c4043" stroke-width="4" fill="none"/><rect x="9" y="33" width="11" height="18" rx="5" fill="#3c4043"/><rect x="44" y="33" width="11" height="18" rx="5" fill="#3c4043"/><circle cx="14.5" cy="42" r="2.5" fill="#febd69"/>',
+  p7: '<circle cx="32" cy="26" r="15" fill="#3c4043"/><circle cx="32" cy="26" r="8" fill="#1a73e8"/><circle cx="32" cy="26" r="3.5" fill="#0b3d91"/><circle cx="35" cy="23" r="1.5" fill="#fff" opacity=".8"/><path d="M24 44h16l3 8H21z" fill="#5f6368"/>',
+  p8: '<path d="M22 16l18-6 6 10-18 6z" fill="#febd69"/><path d="M27 23l6 22" stroke="#5f6368" stroke-width="3.5"/><path d="M28 21l-12 13" stroke="#5f6368" stroke-width="3.5"/><path d="M30 16l12 22" stroke="#fff2c6" stroke-width="10" opacity=".55"/><rect x="18" y="45" width="28" height="6" rx="3" fill="#3c4043"/>',
+};
+
+const svg = (id) => `<svg viewBox="0 0 64 60" aria-hidden="true">${ICON[id] || '<rect x="16" y="14" width="32" height="32" rx="6" fill="#9aa0a6"/>'}</svg>`;
+const bg = (id) => { const c = (EXTRA[id] || {}).bg || ['#f3f3f3', '#e3e3e3']; return `background:linear-gradient(145deg,${c[0]},${c[1]})`; };
+
+// Deterministic demo ratings so the grid looks populated.
+function ratingFor(id) {
+  // FNV-1a + xorshift mix so neighbouring ids don't get neighbouring values.
+  let h = 2166136261;
+  for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; h >>>= 0;
+  return { stars: 3.6 + (h % 14) / 10, count: 140 + ((h >>> 4) % 18000), bought: [50, 100, 200, 500, 1000, 3000][(h >>> 9) % 6] };
+}
+function starsSvg(v) {
+  let s = '';
+  for (let i = 1; i <= 5; i++) {
+    const fill = v >= i ? 1 : v >= i - 0.5 ? 0.5 : 0;
+    const gid = 'g' + Math.random().toString(36).slice(2, 8);
+    s += `<svg viewBox="0 0 20 20"><defs><linearGradient id="${gid}"><stop offset="${fill * 100}%" stop-color="var(--star)"/><stop offset="${fill * 100}%" stop-color="#fff"/></linearGradient></defs><path d="M10 1.5l2.6 5.6 6 .7-4.5 4.1 1.2 6-5.3-3-5.3 3 1.2-6L1.4 7.8l6-.7z" fill="url(#${gid})" stroke="#de7921" stroke-width="1"/></svg>`;
+  }
+  return `<span class="stars" aria-label="${v.toFixed(1)} out of 5 stars">${s}</span>`;
+}
+
+const money = (n) => '$' + Number(n).toFixed(2);
+function priceHtml(p) {
+  const [w, f] = Number(p).toFixed(2).split('.');
+  return `<div class="price"><span class="sym">$</span><span class="whole">${w}</span><span class="frac">${f}</span></div>`;
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+function deliveryDate(days) {
+  const d = new Date(); d.setDate(d.getDate() + days);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/* ===================== API ===================== */
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
+  const body = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw new Error((body && (body.error || body.detail)) || res.statusText);
+  return body;
+}
+
+/* ===================== State ===================== */
+const state = { products: [], stock: {}, cart: { items: [], total: 0 }, cat: '', q: '', deals: false, sort: 'featured', scope: 'mine', myOrders: new Set() };
+try { JSON.parse(localStorage.getItem('myOrders') || '[]').forEach((id) => state.myOrders.add(id)); } catch (_) {}
+const saveMine = () => { try { localStorage.setItem('myOrders', JSON.stringify([...state.myOrders].slice(-50))); } catch (_) {} };
+
+const $ = (id) => document.getElementById(id);
+
+/* ===================== Toast ===================== */
+let toastTimer;
+function toast(msg, ok = true) {
+  $('toastMsg').innerHTML = msg;
+  $('toastIc').style.background = ok ? 'var(--ok)' : 'var(--bad)';
+  $('toastIc').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3">${ok ? '<path d="M5 12l5 5 9-10"/>' : '<path d="M6 6l12 12M18 6L6 18"/>'}</svg>`;
+  $('toast').classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('on'), 2600);
+}
+
+/* ===================== Shop view ===================== */
+function skeleton() {
+  $('grid').innerHTML = Array(8).fill(0).map(() => `<div class="prod"><div class="img skel"></div><div class="body"><div class="skel" style="height:18px;width:85%"></div><div class="skel" style="height:14px;width:50%"></div><div class="skel" style="height:28px;width:35%;margin-top:6px"></div></div></div>`).join('');
+}
+
+function stockLine(id) {
+  const s = state.stock[id];
+  if (s === undefined) return '<div class="stock">In Stock</div>';
+  if (s <= 0) return '<div class="stock low">Currently unavailable</div>';
+  if (s < 25) return `<div class="stock low">Only ${s} left in stock — order soon.</div>`;
+  return '<div class="stock">In Stock</div>';
+}
+
+function visibleProducts() {
+  let list = state.products.filter((p) =>
+    (!state.cat || p.category === state.cat) &&
+    (!state.q || p.name.toLowerCase().includes(state.q.toLowerCase()) || p.category.includes(state.q.toLowerCase())) &&
+    (!state.deals || (EXTRA[p.id] && EXTRA[p.id].list)));
+  const r = (p) => ratingFor(p.id).stars;
+  if (state.sort === 'low') list.sort((a, b) => a.price - b.price);
+  if (state.sort === 'high') list.sort((a, b) => b.price - a.price);
+  if (state.sort === 'rating') list.sort((a, b) => r(b) - r(a));
+  return list;
+}
+
+function renderGrid() {
+  const list = visibleProducts();
+  $('resultsTitle').textContent = state.deals ? "Today's Deals" : state.q ? `Results for "${state.q}"` : state.cat ? cap(state.cat) : 'Recommended for you';
+  $('resultsCount').textContent = ` · ${list.length} item${list.length === 1 ? '' : 's'}`;
+  if (!list.length) {
+    $('grid').innerHTML = '<div class="empty" style="grid-column:1/-1">No results. Try a different search or category.</div>';
+    return;
+  }
+  $('grid').innerHTML = list.map((p) => {
+    const x = EXTRA[p.id] || {}, rt = ratingFor(p.id);
+    const off = x.list ? Math.round((1 - p.price / x.list) * 100) : 0;
+    const badge = x.badge === 'choice' ? '<span class="badge choice">Shop\'s <b>Choice</b></span>' : off >= 10 ? `<span class="badge">-${off}% Deal</span>` : '';
+    return `<article class="prod">
+      <div class="img" style="${bg(p.id)}" data-open="${p.id}">${badge}${svg(p.id)}</div>
+      <div class="body">
+        <a class="title" data-open="${p.id}">${esc(p.name)}</a>
+        <div class="rating">${rt.stars.toFixed(1)} ${starsSvg(rt.stars)} <a>${rt.count.toLocaleString()}</a></div>
+        <div class="bought">${rt.bought}+ bought in past month</div>
+        ${priceHtml(p.price)}
+        ${x.list ? `<div class="listprice">List: <s>${money(x.list)}</s></div>` : ''}
+        <div class="delivery">FREE delivery <b>${deliveryDate(2)}</b></div>
+        ${stockLine(p.id)}
+        <button class="btn btn-cart" type="button" data-add="${p.id}" ${state.stock[p.id] === 0 ? 'disabled' : ''}>Add to cart</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function renderPromos() {
+  const byCat = {};
+  state.products.forEach((p) => (byCat[p.category] = byCat[p.category] || []).push(p));
+  const cats = Object.keys(byCat);
+  const cards = [];
+  const mini = (ps) => `<div class="mini">${ps.slice(0, 4).map((p) => `<div data-open="${p.id}"><div class="img" style="${bg(p.id)}">${svg(p.id)}</div><small>${esc(p.name)}</small></div>`).join('')}</div>`;
+  const deals = state.products.filter((p) => EXTRA[p.id] && EXTRA[p.id].list);
+  cards.push(`<div class="promo"><h3>Top deals for your desk</h3>${mini(deals)}<a data-deals="1" style="display:block;margin-top:10px">See all deals</a></div>`);
+  cats.slice(0, 2).forEach((c) => cards.push(`<div class="promo"><h3>Shop ${cap(c)}</h3>${mini(byCat[c])}<a data-cat-link="${c}" style="display:block;margin-top:10px">Explore ${c}</a></div>`));
+  cards.push(`<div class="promo"><h3>Watch your order travel</h3><p style="margin:0 0 8px;color:var(--muted)">Each checkout fans out through RabbitMQ to payment, inventory and notification services.</p><div style="display:grid;place-items:center;height:120px;border-radius:6px;background:linear-gradient(135deg,#232f3e,#37475a);color:#febd69;font-weight:700;font-size:15px;text-align:center;padding:10px">cart → order → payment<br>→ inventory → notify</div><button class="signin" type="button" onclick="window.open('http://jaeger.localhost','_blank')">Open Jaeger traces</button></div>`);
+  $('promos').innerHTML = cards.join('');
+  $('heroArt').innerHTML = ['p6', 'p3', 'p1'].map((id) => `<div class="tile">${svg(id)}</div>`).join('');
+}
+
+function renderCategories() {
+  const cats = [...new Set(state.products.map((p) => p.category))].sort();
+  $('cat').innerHTML = '<option value="">All</option>' + cats.map((c) => `<option value="${c}">${cap(c)}</option>`).join('');
+  const nav = $('subnav');
+  nav.querySelectorAll('[data-cat]:not([data-cat=""])').forEach((b) => b.remove());
+  const deals = nav.querySelector('[data-deal]');
+  cats.forEach((c) => {
+    const b = document.createElement('button');
+    b.dataset.cat = c; b.textContent = cap(c);
+    nav.insertBefore(b, deals.nextSibling);
+  });
+  syncNav();
+}
+
+function syncNav() {
+  $('subnav').querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', state.deals ? !!b.dataset.deal : (b.dataset.cat !== undefined && b.dataset.cat === state.cat));
+  });
+  $('cat').value = state.cat;
+}
+
+function setFilter({ cat = state.cat, q = state.q, deals = false } = {}) {
+  Object.assign(state, { cat, q, deals });
+  showView('shop');
+  syncNav();
+  renderGrid();
+}
+
+async function loadProducts() {
+  skeleton();
+  try {
+    state.products = await api('/products');
+    renderCategories();
+    renderPromos();
+    renderGrid();
+  } catch (e) {
+    $('grid').innerHTML = `<div class="empty" style="grid-column:1/-1">We couldn't load products (${esc(e.message)}). Retrying…</div>`;
+    setTimeout(loadProducts, 2000);
+  }
+}
+
+async function loadStock() {
+  try {
+    const rows = await api('/inventory');
+    rows.forEach((r) => (state.stock[r.productId] = r.stock));
+    if (state.products.length) renderGrid();
+  } catch (_) { /* inventory is optional for browsing */ }
+}
+
+/* ===================== Product detail ===================== */
+function openProduct(id) {
+  const p = state.products.find((x) => x.id === id);
+  if (!p) return;
+  const x = EXTRA[id] || {}, rt = ratingFor(id);
+  const off = x.list ? Math.round((1 - p.price / x.list) * 100) : 0;
+  $('modalBody').innerHTML = `<div class="detail">
+    <div class="hero-img" style="${bg(id)}">${svg(id)}</div>
+    <div>
+      <h2>${esc(p.name)}</h2>
+      <a>Visit the ShopSphere Store</a>
+      <div class="rating" style="margin:6px 0">${rt.stars.toFixed(1)} ${starsSvg(rt.stars)} <a>${rt.count.toLocaleString()} ratings</a></div>
+      <div class="bought">${rt.bought}+ bought in past month</div>
+      <hr>
+      <div style="display:flex;align-items:flex-start;gap:8px">${off ? `<span style="color:#cc0c39;font-size:24px;font-weight:300">-${off}%</span>` : ''}${priceHtml(p.price)}</div>
+      ${x.list ? `<div class="listprice">List Price: <s>${money(x.list)}</s></div>` : ''}
+      <hr>
+      <b>About this item</b>
+      <ul>${(x.bullets || []).map((b) => `<li>${esc(b)}</li>`).join('')}</ul>
+      <div class="buybox">
+        ${priceHtml(p.price)}
+        <div class="delivery">FREE delivery <b>${deliveryDate(2)}</b>. Or fastest delivery <b>Tomorrow</b>.</div>
+        ${stockLine(id)}
+        <label>Quantity: <select id="detailQty">${[1, 2, 3, 4, 5].map((n) => `<option>${n}</option>`).join('')}</select></label>
+        <button class="btn btn-cart" type="button" id="detailAdd">Add to Cart</button>
+        <button class="btn btn-buy" type="button" id="detailBuy">Buy Now</button>
+        <div class="secure">🔒 Secure transaction · Ships from and sold by ShopSphere</div>
+      </div>
+    </div>
+  </div>`;
+  $('detailAdd').onclick = () => addToCart(id, Number($('detailQty').value)).then((ok) => ok && closeAll());
+  $('detailBuy').onclick = async () => { if (await addToCart(id, Number($('detailQty').value), true)) openCheckout(); };
+  openModal();
+}
+
+/* ===================== Cart ===================== */
+async function addToCart(productId, quantity = 1, silent = false) {
+  try {
+    state.cart = await api(`/cart/${USER}/items`, { method: 'POST', body: JSON.stringify({ productId, quantity }) });
+    renderCart();
+    if (!silent) {
+      const p = state.products.find((x) => x.id === productId);
+      toast(`<b>Added to cart</b> · ${esc(p ? p.name : productId)}`);
+    }
+    return true;
+  } catch (e) {
+    toast(`Couldn't add item: ${esc(e.message)}`, false);
+    return false;
+  }
+}
+
+async function setQty(productId, quantity) {
+  try {
+    state.cart = await api(`/cart/${USER}/items/${productId}`, { method: 'PUT', body: JSON.stringify({ quantity }) });
+    renderCart();
+  } catch (e) { toast(`Couldn't update cart: ${esc(e.message)}`, false); }
+}
+
+function renderCart() {
+  const { items, total } = state.cart;
+  const count = items.reduce((n, i) => n + i.quantity, 0);
+  $('cartCount').textContent = count;
+  if (!items.length) {
+    $('cartItems').innerHTML = `<div class="empty"><svg width="90" height="70" viewBox="0 0 40 30" fill="none" stroke="#c4c4c4" stroke-width="1.6"><path d="M2 4h6l4 17h20l4-12H11"/><circle cx="15" cy="26" r="2"/><circle cx="29" cy="26" r="2"/></svg><h3 style="color:var(--text);margin:10px 0 4px">Your cart is empty</h3><a data-close>Shop today's deals</a></div>`;
+    $('cartFoot').innerHTML = '';
+    return;
+  }
+  $('cartItems').innerHTML = items.map((i) => `<div class="line">
+    <div class="thumb" style="${bg(i.productId)}">${svg(i.productId)}</div>
+    <div>
+      <div class="name">${esc(i.name)}</div>
+      <div class="lp">${money(i.price * i.quantity)}</div>
+      <div class="stock" style="font-size:12px">In Stock</div>
+      <div class="actions">
+        <span class="qty"><button type="button" data-dec="${i.productId}" aria-label="Decrease">${i.quantity === 1 ? '🗑' : '−'}</button><span>${i.quantity}</span><button type="button" data-inc="${i.productId}" aria-label="Increase">+</button></span>
+        <a data-del="${i.productId}">Delete</a>
+      </div>
+    </div>
+  </div>`).join('');
+  const left = FREE_SHIP - total;
+  $('cartFoot').innerHTML = `
+    <div class="subtotal">Subtotal (${count} item${count === 1 ? '' : 's'}): <b>${money(total)}</b></div>
+    <div class="freeship">${left > 0 ? `Add <b>${money(left)}</b> for FREE delivery` : '✅ Your order qualifies for FREE delivery'}</div>
+    <button class="btn btn-cart" type="button" id="toCheckout">Proceed to checkout</button>`;
+  $('toCheckout').onclick = openCheckout;
+}
+
+async function loadCart() {
+  try { state.cart = await api(`/cart/${USER}`); renderCart(); } catch (_) {}
+}
+
+/* ===================== Checkout ===================== */
+function openCheckout() {
+  const { items, total } = state.cart;
+  if (!items.length) return;
+  closeDrawer();
+  const ship = total >= FREE_SHIP ? 0 : 5.99;
+  const tax = Math.round(total * 0.05 * 100) / 100;
+  $('modalBody').innerHTML = `<div class="checkout">
+    <h2>Checkout (${items.reduce((n, i) => n + i.quantity, 0)} items)</h2>
+    <div class="co-grid">
+      <div>
+        <div class="co-step"><b>1</b><b>Delivery address</b><div>Demo shopper<br>221B Sample Street<br>Demo City, DC 00000</div></div>
+        <div class="co-step"><b>2</b><b>Payment method</b><div>💳 Demo card ending in 0000<br><small style="color:var(--muted)">~15% of payments are declined on purpose, to show failure paths in traces.</small></div></div>
+        <div class="co-step"><b>3</b><b>Review items</b><div>${items.map((i) => `<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><div class="thumb" style="${bg(i.productId)};width:44px;height:44px;border-radius:6px;display:grid;place-items:center">${svg(i.productId).replace('<svg', '<svg width="28" height="28"')}</div><div>${esc(i.name)}<br><small>Qty ${i.quantity} · <b>${money(i.price * i.quantity)}</b></small></div></div>`).join('')}<div class="delivery">Arriving <b>${deliveryDate(2)}</b></div></div></div>
+      </div>
+      <div class="summary">
+        <button class="btn btn-cart" type="button" id="placeOrder">Place your order</button>
+        <b style="font-size:17px">Order Summary</b>
+        <div class="row"><span>Items:</span><span>${money(total)}</span></div>
+        <div class="row"><span>Shipping & handling:</span><span>${ship ? money(ship) : 'FREE'}</span></div>
+        <div class="row"><span>Estimated tax:</span><span>${money(tax)}</span></div>
+        <div class="row total"><span>Order total:</span><span>${money(total + ship + tax)}</span></div>
+        <small style="color:var(--muted)">Demo only: no real payment is made. The order service charges the item subtotal.</small>
+      </div>
+    </div>
+  </div>`;
+  $('placeOrder').onclick = placeOrder;
+  openModal();
+}
+
+async function placeOrder() {
+  const btn = $('placeOrder');
+  btn.disabled = true; btn.textContent = 'Placing order…';
+  try {
+    const order = await api(`/cart/${USER}/checkout`, { method: 'POST' });
+    state.myOrders.add(order.id); saveMine();
+    state.cart = { items: [], total: 0 }; renderCart();
+    showConfirmation(order);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Place your order';
+    toast(`Checkout failed: ${esc(e.message)}`, false);
+  }
+}
+
+function trackHtml(status) {
+  const failed = status === 'PAYMENT_FAILED', paid = status === 'PAID';
+  const st = (label, cls) => `<div class="st ${cls}"><i>${cls.includes('fail') ? '✕' : cls.includes('done') ? '✓' : ''}</i>${label}</div>`;
+  return `<div class="track">
+    ${st('Order placed', 'done')}
+    ${st(failed ? 'Payment declined' : 'Payment', paid ? 'done' : failed ? 'done fail' : 'live')}
+    ${st('Stock reserved', paid ? 'done' : '')}
+    ${st('Confirmation sent', paid || failed ? 'done' : '')}
+  </div>`;
+}
+
+let confirmPoll;
+function showConfirmation(order) {
+  const render = (o) => {
+    const failed = o.status === 'PAYMENT_FAILED', paid = o.status === 'PAID';
+    $('modalBody').innerHTML = `<div class="confirm">
+      <div class="big" style="background:${failed ? '#fde8e4' : '#e3f5ef'}">${failed
+        ? '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--bad)" stroke-width="2.6"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+        : '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.6"><path d="M5 12l5 5 9-10"/></svg>'}</div>
+      <h2 style="color:${failed ? 'var(--bad)' : 'var(--ok)'}">${failed ? 'Payment declined' : paid ? 'Order confirmed, thank you!' : 'Order placed. Processing payment…'}</h2>
+      <div>Order <b>#${o.id}</b> · ${money(o.total)}</div>
+      ${trackHtml(o.status)}
+      <p style="color:var(--muted);max-width:520px;margin:14px auto">${failed
+        ? 'The card issuer declined this payment. This is a simulated business failure; check the trace in Jaeger to see how it flowed.'
+        : 'Your order was published to RabbitMQ; payment, inventory and notification services are processing it asynchronously.'}</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-cart" type="button" id="cGoOrders">View your orders</button>
+        <button class="btn btn-ghost" type="button" data-close>Continue shopping</button>
+        <button class="btn btn-ghost" type="button" onclick="window.open('http://jaeger.localhost/search?service=order-service','_blank')">Open trace search ↗</button>
+      </div>
+    </div>`;
+    $('cGoOrders').onclick = () => { closeAll(); showView('orders'); };
+  };
+  render(order);
+  openModal();
+  clearInterval(confirmPoll);
+  let tries = 0;
+  confirmPoll = setInterval(async () => {
+    if (++tries > 20 || !$('modal').classList.contains('on')) return clearInterval(confirmPoll);
+    try {
+      const o = await api(`/orders/${order.id}`);
+      if (o.status !== 'PENDING_PAYMENT') { clearInterval(confirmPoll); render(o); loadStock(); }
+    } catch (_) {}
+  }, 700);
+}
+
+/* ===================== Orders view ===================== */
+const STATUS_TEXT = { PAID: 'Paid · Preparing for shipment', PAYMENT_FAILED: 'Payment declined', PENDING_PAYMENT: 'Processing payment…' };
+const orderItemsCache = {};
+
+async function loadOrders() {
+  if ($('ordersView').hidden) return;
+  try {
+    let orders = await api('/orders?limit=50');
+    if (state.scope === 'mine') orders = orders.filter((o) => o.userId === USER || state.myOrders.has(o.id));
+    if (!orders.length) {
+      $('ordersList').innerHTML = `<div class="empty">${state.scope === 'mine' ? 'You have not placed any orders yet. <a id="emptyShop">Start shopping</a>' : 'No orders yet.'}</div>`;
+      const es = $('emptyShop'); if (es) es.onclick = () => showView('shop');
+      return;
+    }
+    const need = orders.filter((o) => !orderItemsCache[o.id]).slice(0, 12);
+    await Promise.all(need.map((o) => api(`/orders/${o.id}`).then((d) => (orderItemsCache[o.id] = d.items)).catch(() => {})));
+    $('ordersList').innerHTML = orders.map((o) => `<div class="order">
+      <div class="oh">
+        <div>Order placed<b>${new Date(o.createdAt).toLocaleString()}</b></div>
+        <div>Total<b>${money(o.total)}</b></div>
+        <div>Ship to<b>${esc(o.userId)}</b></div>
+        <div class="num">Order #<b>${o.id}</b></div>
+      </div>
+      <div class="ob">
+        <div><div class="status ${o.status}">${STATUS_TEXT[o.status] || o.status}</div>
+        <small style="color:var(--muted)">${o.status === 'PAID' ? `Arriving ${deliveryDate(2)}` : o.status === 'PAYMENT_FAILED' ? 'Card declined by issuer. No charge was made.' : 'Waiting for payment-service…'}</small></div>
+        <button class="btn btn-ghost" type="button" onclick="window.open('http://jaeger.localhost/search?service=order-service&tags=' + encodeURIComponent(JSON.stringify({'http.route':'/orders'})),'_blank')">Find traces ↗</button>
+      </div>
+      ${orderItemsCache[o.id] ? `<div class="itemsrow">${orderItemsCache[o.id].map((i) => `<span class="chip"><span class="t" style="${bg(i.productId)}">${svg(i.productId)}</span>${esc(i.name)} × ${i.quantity}</span>`).join('')}</div>` : ''}
+    </div>`).join('');
+  } catch (e) {
+    $('ordersList').innerHTML = `<div class="empty">Couldn't load orders (${esc(e.message)}).</div>`;
+  }
+}
+
+/* ===================== Views, drawer, modal ===================== */
+function showView(v) {
+  $('shopView').hidden = v !== 'shop';
+  $('ordersView').hidden = v !== 'orders';
+  if (v === 'orders') { $('ordersList').innerHTML = '<div class="empty">Loading your orders…</div>'; loadOrders(); }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function openDrawer() { $('drawer').classList.add('on'); $('scrim').classList.add('on'); }
+function closeDrawer() { $('drawer').classList.remove('on'); if (!$('modal').classList.contains('on')) $('scrim').classList.remove('on'); }
+function openModal() { $('modal').classList.add('on'); $('scrim').classList.add('on'); }
+function closeAll() { $('drawer').classList.remove('on'); $('modal').classList.remove('on'); $('scrim').classList.remove('on'); }
+
+/* ===================== Events ===================== */
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-open],[data-add],[data-inc],[data-dec],[data-del],[data-close],[data-cat],[data-deal],[data-deals],[data-cat-link],[data-scope]');
+  if (!t) return;
+  const d = t.dataset;
+  if (d.open) openProduct(d.open);
+  else if (d.add) addToCart(d.add);
+  else if (d.inc) { const i = state.cart.items.find((x) => x.productId === d.inc); setQty(d.inc, i.quantity + 1); }
+  else if (d.dec) { const i = state.cart.items.find((x) => x.productId === d.dec); setQty(d.dec, i.quantity - 1); }
+  else if (d.del) setQty(d.del, 0);
+  else if (d.close !== undefined) closeAll();
+  else if (d.deal || d.deals) { $('q').value = ''; setFilter({ cat: '', q: '', deals: true }); }
+  else if (d.catLink !== undefined) { $('q').value = ''; setFilter({ cat: d.catLink, q: '' }); }
+  else if (d.cat !== undefined) { $('q').value = ''; setFilter({ cat: d.cat, q: '' }); }
+  else if (d.scope) {
+    state.scope = d.scope;
+    document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b === t));
+    loadOrders();
+  }
+});
+$('scrim').onclick = closeAll;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+$('searchForm').onsubmit = (e) => { e.preventDefault(); setFilter({ cat: $('cat').value, q: $('q').value.trim() }); document.querySelector('.panel').scrollIntoView({ behavior: 'smooth' }); };
+$('q').oninput = () => { if (!$('shopView').hidden) setFilter({ cat: $('cat').value, q: $('q').value.trim() }); };
+$('cat').onchange = () => setFilter({ cat: $('cat').value, q: $('q').value.trim() });
+$('sort').onchange = () => { state.sort = $('sort').value; renderGrid(); };
+$('cartBtn').onclick = openDrawer;
+$('ordersBtn').onclick = () => showView('orders');
+$('backToShop').onclick = () => showView('shop');
+$('home').onclick = () => { $('q').value = ''; setFilter({ cat: '', q: '' }); };
+$('heroShop').onclick = () => { setFilter({ cat: '', q: '', deals: true }); document.querySelector('.panel').scrollIntoView({ behavior: 'smooth' }); };
+$('toTop').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+/* ===================== Boot ===================== */
+loadProducts();
+loadStock();
+loadCart();
+// Poll only while the tab is visible, so an idle background tab adds no traffic.
+setInterval(() => { if (!document.hidden) loadStock(); }, 15000);
+setInterval(() => { if (!document.hidden) loadOrders(); }, 3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{{- if .Values.redis.enabled }}
+{{- /* carts are throw-away in this demo: no persistent volume */}}
+{{- include "data-stores.store" (dict "ctx" . "name" "redis" "port" 6379 "portName" "redis"
+      "cfg" .Values.redis "storage" false "probe" (list "redis-cli" "ping") "env" list) }}
+{{- end }}

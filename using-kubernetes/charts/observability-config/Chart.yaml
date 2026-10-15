@@ -1,0 +1,6 @@
+apiVersion: v2
+name: observability-config
+description: "Our own observability objects: routes, monitors, alert rules + SLOs, dashboards, OTel collector"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
