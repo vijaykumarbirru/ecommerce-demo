@@ -19,6 +19,7 @@ and shares nothing with the Docker version.
 ## Layout
 
 ```
+docs/OBSERVABILITY.md                           observability (open source + New Relic) in detail
 docs/K8s_Project_and_Observability_Guide.docx   walkthrough of every folder/file + observability settings explained
 docs/NewRelic_APM_Kubernetes_Setup.docx         New Relic APM (option A) setup, operations, troubleshooting
 cluster/kind-config.yaml               3-node cluster, Mac ports 80/443 -> control-plane node
