@@ -1,0 +1,1032 @@
+# Platform components — Docker Compose stack
+
+A detailed guide to every **non-application** component in `using-docker/`:
+the data stores and message broker the services depend on, and the full
+observability stack that watches them. For each one: what it is, why it is
+here, real-world use cases, exactly how it is configured in this repo, how to
+use it, and what usually goes wrong.
+
+The eight application services (api-gateway, product, cart, order, payment,
+inventory, notification, frontend) and the load generator are out of scope —
+see the [README](../README.md) for those.
+
+All paths are relative to `using-docker/`.
+
+## Contents
+
+1. [Big picture](#1-big-picture)
+2. [The three signals: metrics, logs, traces](#2-the-three-signals-metrics-logs-traces)
+3. [Component inventory](#3-component-inventory)
+4. Data and messaging
+   - [4.1 PostgreSQL](#41-postgresql)
+   - [4.2 MongoDB](#42-mongodb)
+   - [4.3 Redis](#43-redis)
+   - [4.4 RabbitMQ](#44-rabbitmq)
+5. Observability pipeline
+   - [5.1 OpenTelemetry Collector](#51-opentelemetry-collector)
+   - [5.2 Jaeger](#52-jaeger)
+   - [5.3 Prometheus](#53-prometheus)
+   - [5.4 Loki](#54-loki)
+   - [5.5 Promtail](#55-promtail)
+   - [5.6 Grafana](#56-grafana)
+   - [5.7 cAdvisor](#57-cadvisor)
+   - [5.8 postgres-exporter](#58-postgres-exporter)
+   - [5.9 redis-exporter](#59-redis-exporter)
+   - [5.10 mongodb-exporter](#510-mongodb-exporter)
+6. [How the signals are linked together](#6-how-the-signals-are-linked-together)
+7. [Ports and URLs](#7-ports-and-urls)
+8. [Investigating a problem end to end](#8-investigating-a-problem-end-to-end)
+9. [Troubleshooting cheat sheet](#9-troubleshooting-cheat-sheet)
+10. [Taking this to production](#10-taking-this-to-production)
+
+---
+
+## 1. Big picture
+
+```mermaid
+flowchart LR
+  subgraph apps[Application services]
+    gw[api-gateway] & product & cart & order & payment & inventory & notify[notification]
+  end
+
+  subgraph data[Data & messaging]
+    pg[(PostgreSQL)]
+    mongo[(MongoDB)]
+    redis[(Redis)]
+    mq{{RabbitMQ}}
+  end
+
+  product --> mongo
+  cart --> redis
+  order & payment & inventory --> pg
+  order & payment & inventory & notify <--> mq
+
+  apps -- "OTLP (traces + metrics)" --> col[OTel Collector]
+  col -- traces --> jaeger[Jaeger]
+  col -- "app + span metrics :8889" --> prom[Prometheus]
+
+  subgraph exporters[Infra exporters]
+    cad[cAdvisor] & pge[postgres-exporter] & rde[redis-exporter] & mge[mongodb-exporter]
+  end
+  exporters --> prom
+  mq -- ":15692 plugin" --> prom
+
+  stdout[container stdout/stderr] --> promtail[Promtail] --> loki[Loki]
+
+  prom & jaeger & loki --> grafana[Grafana]
+```
+
+Two simple rules explain the whole design:
+
+1. **Applications only know one address for telemetry**: the OpenTelemetry
+   Collector (`http://otel-collector:4318`). Where the data goes after that is
+   the collector's business. Changing vendor = editing one YAML file.
+2. **Infrastructure is observed from the outside**: databases, the broker and
+   containers are *scraped* by Prometheus through exporters, and logs are
+   *tailed* from Docker by Promtail. Nothing in the databases or the apps has
+   to change for that.
+
+---
+
+## 2. The three signals: metrics, logs, traces
+
+| | Metrics | Logs | Traces |
+|---|---|---|---|
+| **What it is** | Numbers over time (counters, gauges, histograms) | Timestamped text lines | The path of one request across services, as a tree of timed *spans* |
+| **Answers** | "Is something wrong? How much? Since when?" | "What exactly happened in this process?" | "Where in the call chain is the time / the error?" |
+| **Cost** | Cheapest — aggregated | Most expensive — every line stored | Medium — usually sampled in production |
+| **Here, produced by** | OTel SDKs, spanmetrics connector, exporters, cAdvisor, RabbitMQ plugin | Every container's stdout | OTel SDKs / agents in every service |
+| **Stored in** | Prometheus | Loki | Jaeger |
+| **Typical tool habit** | Dashboards & alerts | Search & filter | Waterfall view |
+
+The power is in **moving between them**: a latency spike on a metric panel →
+the exact slow trace → the log lines of that trace. Section 6 shows how this
+repo wires those jumps.
+
+---
+
+## 3. Component inventory
+
+| Component | Image / version | Category | Host port | Persistent volume |
+|---|---|---|---|---|
+| PostgreSQL | `postgres:16-alpine` | Relational DB | — | `postgres-data` |
+| MongoDB | `mongo:7` | Document DB | — | `mongo-data` |
+| Redis | `redis:7-alpine` | In-memory store | — | none (by design) |
+| RabbitMQ | `rabbitmq:3.13-management-alpine` | Message broker | 15672 | none |
+| OpenTelemetry Collector | `otel/opentelemetry-collector-contrib:0.111.0` | Telemetry pipeline | 4317, 4318 | — |
+| Jaeger | `jaegertracing/all-in-one:1.62.0` | Trace storage & UI | 16686 | none (in-memory) |
+| Prometheus | `prom/prometheus:v2.54.1` | Metrics DB | 9090 | `prometheus-data` |
+| Loki | `grafana/loki:3.2.0` | Log DB | — | none |
+| Promtail | `grafana/promtail:3.2.0` | Log shipper | — | — |
+| Grafana | `grafana/grafana:11.2.2` | Visualisation | 3000 | `grafana-data` |
+| cAdvisor | `ghcr.io/google/cadvisor:v0.60.5` | Container metrics | — | — |
+| postgres-exporter | `quay.io/prometheuscommunity/postgres-exporter:v0.15.0` | DB metrics | — | — |
+| redis-exporter | `oliver006/redis_exporter:v1.63.0` | Cache metrics | — | — |
+| mongodb-exporter | `percona/mongodb_exporter:0.40.0` | DB metrics | — | — |
+
+"Host port —" means the component is only reachable **inside** the Compose
+network (by its service name, e.g. `postgres:5432`). Use `docker compose exec`
+to reach it, or Grafana for Loki.
+
+Every image is pinned to an exact version so the stack behaves the same on
+every machine and every day. Upgrade deliberately, one component at a time.
+
+---
+
+## 4. Data and messaging
+
+### 4.1 PostgreSQL
+
+**What it is.** The most widely used open-source relational database: tables,
+SQL, transactions (ACID), foreign keys, joins.
+
+**Why it is here.** The order flow needs data that must never be half-written:
+an order, its line items, the payment record and the stock change. That is
+exactly what transactions are for.
+
+| Used by | Tables (database `shop`) |
+|---|---|
+| order-service (Java) | `orders`, `order_items` |
+| payment-service (.NET) | `payments` |
+| inventory-service (Node.js) | `inventory` |
+
+**Real-world use cases.** Orders, payments, invoices, user accounts, banking
+ledgers, anything where correctness and relations matter more than raw speed.
+Also used as a job queue, geo database (PostGIS) and vector store (pgvector).
+
+**Configuration here** (`docker-compose.yml`):
+
+```yaml
+postgres:
+  image: postgres:16-alpine
+  environment:
+    POSTGRES_DB: shop                       # created on first start
+    POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  volumes:
+    - postgres-data:/var/lib/postgresql/data   # survives `docker compose down`
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+```
+
+- `${VAR:-default}` means: take it from your shell or a `.env` file, otherwise
+  use the default. Set real values outside a local demo.
+- The healthcheck lets dependants use `condition: service_healthy`, so the
+  Java/.NET/Node services do not start before the database accepts connections.
+- No host port is published — only containers on the Compose network can
+  connect. That is a sensible default for databases.
+
+**How to use it.**
+
+```bash
+docker compose exec postgres psql -U postgres -d shop
+```
+```sql
+\dt                                              -- list tables
+SELECT status, count(*) FROM orders GROUP BY 1;  -- order outcomes
+SELECT * FROM payments ORDER BY 1 DESC LIMIT 5;  -- latest payments
+SELECT * FROM inventory;                         -- stock levels
+```
+
+**Observed by.** [postgres-exporter](#58-postgres-exporter) → Prometheus →
+*Infrastructure* dashboard (transactions/sec, connections). Every SQL query
+also appears as a span in Jaeger, because the service SDKs instrument the
+database drivers.
+
+**Common problems.**
+- *Service fails at startup with "connection refused"* — it started before
+  Postgres was ready; check the `depends_on … service_healthy` and the health
+  status in `docker compose ps`.
+- *Changed `POSTGRES_PASSWORD` but login fails* — the password is only applied
+  when the volume is first created. Run `docker compose down -v` (deletes data)
+  or change it with `ALTER USER`.
+- *Too many connections* — watch `pg_stat_database_numbackends`; fix connection
+  pools in the services rather than raising `max_connections`.
+
+**Alternatives.** MySQL / MariaDB; managed: Amazon RDS / Aurora, Cloud SQL,
+Azure Database for PostgreSQL.
+
+---
+
+### 4.2 MongoDB
+
+**What it is.** A document database: instead of rows and columns it stores
+JSON-like documents, and each document can have its own shape.
+
+**Why it is here.** The product catalog — products naturally have varying
+attributes (a book vs. a phone), and the catalog is read far more than it is
+written. product-service (Python/FastAPI) reads database `catalog`,
+collection `products`, and seeds it with sample products on first start.
+
+**Real-world use cases.** Product catalogs, content management, user profiles,
+IoT/event data, mobile app back-ends — anywhere the schema evolves quickly.
+
+**Configuration here.**
+
+```yaml
+mongodb:
+  image: mongo:7
+  volumes:
+    - mongo-data:/data/db
+  healthcheck:
+    test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+```
+
+No authentication is configured — acceptable only because it is not exposed
+outside the Compose network. Always enable auth in shared environments.
+
+**How to use it.**
+
+```bash
+docker compose exec mongodb mongosh catalog
+```
+```js
+db.products.countDocuments()
+db.products.find({}, {name: 1, price: 1}).limit(5)
+db.currentOp()            // what is running right now
+```
+
+**Observed by.** [mongodb-exporter](#510-mongodb-exporter) → *Infrastructure*
+dashboard (operations/sec by type, current connections). Queries appear as
+spans under product-service in Jaeger.
+
+**Common problems.**
+- *Healthcheck slow on first start* — Mongo initialises its files; give it time.
+- *Data "disappeared"* — someone ran `docker compose down -v`; the seed runs
+  again on the next start.
+
+**Alternatives.** Amazon DocumentDB, Couchbase, PostgreSQL `jsonb` columns.
+
+---
+
+### 4.3 Redis
+
+**What it is.** An in-memory key-value store. Every read and write is served
+from RAM, so operations take well under a millisecond.
+
+**Why it is here.** Shopping carts. cart-service (Node.js) stores each cart as
+a Redis **hash** under the key `cart:<userId>` (one field per product) and
+sets a **1-hour expiry**, so abandoned carts clean themselves up.
+
+**Real-world use cases.** Caching database results, user sessions, shopping
+carts, rate limiting, leaderboards, distributed locks, simple queues and
+pub/sub.
+
+**Configuration here.**
+
+```yaml
+redis:
+  image: redis:7-alpine
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+```
+
+No volume on purpose: carts are temporary. A restart empties all carts, which
+is acceptable for a demo (in production you would enable persistence or use a
+managed service with replication).
+
+**How to use it.**
+
+```bash
+docker compose exec redis redis-cli
+```
+```
+KEYS cart:*            # demo only — use SCAN in production, KEYS blocks Redis
+HGETALL cart:<userId>  # contents of one cart
+TTL cart:<userId>      # seconds until it expires
+INFO memory
+MONITOR                # live stream of every command (debug only)
+```
+
+**Observed by.** [redis-exporter](#59-redis-exporter) → *Infrastructure*
+dashboard (commands/sec, memory). Every Redis command appears as a span under
+cart-service.
+
+**Common problems.**
+- *Carts empty after a restart* — expected, see above.
+- *Memory keeps growing* — keys without TTL; check with `INFO keyspace`.
+
+**Alternatives.** Valkey (open-source Redis fork), Memcached (cache only),
+Amazon ElastiCache / MemoryDB.
+
+---
+
+### 4.4 RabbitMQ
+
+**What it is.** A message broker. Services *publish* messages to an
+**exchange**; the exchange routes copies into **queues** according to
+**bindings**; other services *consume* from those queues. Producer and consumer
+never talk to each other directly and do not even need to be running at the
+same time.
+
+**Why it is here.** Checkout is asynchronous: the order is accepted immediately,
+and payment, stock and notifications happen afterwards through events. If
+payment-service is down, the messages simply wait in its queue.
+
+**Topology in this project** (exchange `ecommerce.events`, type **topic**):
+
+| Queue | Binding (routing key) | Consumer | Purpose |
+|---|---|---|---|
+| `payment.order-created` | `order.created` | payment-service | Charge the order |
+| `order.payment-results` | `payment.*` | order-service | Mark the order paid / failed |
+| `inventory.payment-completed` | `payment.completed` | inventory-service | Reduce stock |
+| `notification.all-events` | `order.*`, `payment.*` | notification-service | Send notifications |
+
+```mermaid
+flowchart LR
+  order[order-service] -- order.created --> ex{{ecommerce.events<br/>topic}}
+  payment[payment-service] -- "payment.completed /<br/>payment.failed" --> ex
+  ex --> q1[payment.order-created] --> payment
+  ex --> q2[order.payment-results] --> order
+  ex --> q3[inventory.payment-completed] --> inventory[inventory-service]
+  ex --> q4[notification.all-events] --> notify[notification-service]
+```
+
+A *topic* exchange matches routing keys with wildcards: `payment.*` matches
+both `payment.completed` and `payment.failed`.
+
+**Real-world use cases.** Order pipelines, background jobs (emails, PDFs,
+image processing), decoupling microservices, smoothing traffic spikes, retry
+and dead-letter handling.
+
+**Configuration here.**
+
+```yaml
+rabbitmq:
+  image: rabbitmq:3.13-management-alpine   # includes the web UI
+  environment:
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+  ports:
+    - "15672:15672"                         # management UI
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+```
+
+- AMQP (port 5672) is only available inside the network; services connect with
+  `amqp://guest:guest@rabbitmq:5672`.
+- The **`rabbitmq_prometheus` plugin** is already enabled in this image and
+  serves metrics on port **15692** — so no separate exporter is needed.
+- The exchange and queues are declared by the services at startup, not by
+  RabbitMQ configuration.
+
+**How to use it.** Open <http://localhost:15672> (guest / guest):
+- **Queues** tab — *Ready* (waiting) and *Unacked* (being processed) counts.
+  A growing *Ready* number means the consumer is down or too slow.
+- **Connections** tab — which service is connected. This is the only place to
+  see client identity; Prometheus metrics do not carry it.
+- **Exchanges → ecommerce.events → Bindings** — the routing table above.
+
+**Observed by.** Prometheus scrapes two endpoints of the plugin:
+`/metrics` (job `rabbitmq`, broker-wide totals) and
+`/metrics/detailed?family=queue_coarse_metrics` (job `rabbitmq-queues`,
+per-queue depth). The *Infrastructure* dashboard shows messages ready per
+queue, publish/deliver rates and connections/consumers. In Jaeger, a single
+checkout trace continues *through* RabbitMQ, because the services propagate
+the trace context in message headers.
+
+**Try it.** `docker compose stop rabbitmq` → checkouts slow down or fail;
+watch the RED dashboard and Jaeger. `docker compose start rabbitmq` → queued
+work drains.
+
+**Common problems.**
+- *Queue depth climbing* — consumer crashed; check its logs in Grafana.
+- *Unacked stuck high* — consumer receives but never acknowledges (bug or hang).
+- *Container exits at boot with `failed_to_parse_configuration_file`* — a
+  mounted config file is unreadable (e.g. cloud-synced folder); this repo
+  mounts none, but keep it in mind if you add one.
+
+**Alternatives.** Apache Kafka (high-volume event streaming, replay), Amazon
+SQS/SNS, Amazon MQ, NATS, Redis Streams.
+
+---
+
+## 5. Observability pipeline
+
+### 5.1 OpenTelemetry Collector
+
+**What it is.** A vendor-neutral agent/gateway from the OpenTelemetry project.
+It **receives** telemetry, **processes** it, and **exports** it to one or more
+back-ends. The `-contrib` image includes the community components (like the
+`spanmetrics` connector and the Prometheus exporter).
+
+**Why it is here.** It is the single front door for all application telemetry.
+The 8 services are written in 5 languages; they all send OTLP to the same place,
+and none of them knows that Jaeger or Prometheus exist.
+
+**Real-world use cases.** Avoiding vendor lock-in; sending the same data to two
+vendors during a migration; dropping or redacting sensitive attributes before
+data leaves the network; sampling to cut cost; adding environment/cluster
+labels centrally.
+
+**The pipeline here** (`observability/otel-collector.yaml`):
+
+```mermaid
+flowchart LR
+  otlp[receiver: otlp<br/>:4317 gRPC / :4318 HTTP] --> tp[traces pipeline]
+  tp -- memory_limiter, batch --> j[exporter: otlp/jaeger]
+  tp --> sm[connector: spanmetrics]
+  otlp --> mp[metrics pipeline]
+  sm --> mp
+  mp -- memory_limiter, batch --> pe[exporter: prometheus<br/>:8889]
+  otlp --> lp[logs pipeline] --> dbg[exporter: debug]
+```
+
+| Block | Setting | What it does |
+|---|---|---|
+| `receivers.otlp` | gRPC 4317, HTTP 4318 | Accepts OTLP from the SDKs (apps use HTTP: `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`) |
+| `processors.memory_limiter` | 400 MiB limit, 100 MiB spike | Refuses data instead of crashing when memory is tight. Always first. |
+| `processors.batch` | 5 s | Groups data into batches — fewer, larger requests to back-ends |
+| `connectors.spanmetrics` | buckets 5 ms … 10 s; dimensions `http.request.method`, `http.response.status_code`; exemplars on | **Builds RED metrics from spans** (see below) |
+| `exporters.otlp/jaeger` | `jaeger:4317`, TLS off | Sends traces to Jaeger |
+| `exporters.prometheus` | `:8889`, OpenMetrics on | Exposes metrics for Prometheus to scrape; OpenMetrics is required for exemplars |
+| `exporters.debug` | basic | Prints a summary to the collector's own stdout |
+| `extensions.health_check` | `:13133` | Liveness endpoint |
+
+**Why the `spanmetrics` connector matters.** Each language's OTel library
+emits its own HTTP metrics, and they disagree on names and units (older
+`http_server_duration_milliseconds` vs newer `http_server_request_duration_seconds`).
+The connector instead computes metrics from the **spans** — which look the same
+in every language — so every service gets identical metrics:
+
+- `traces_span_metrics_calls_total` — request count (with `status_code` for errors)
+- `traces_span_metrics_duration_milliseconds_bucket` — latency histogram
+
+Both carry `service_name`, `span_name`, `span_kind`, plus the two dimensions
+above. The RED dashboard and Jaeger's *Monitor* tab are built entirely on them.
+A connector is both an exporter (of the traces pipeline) and a receiver (of the
+metrics pipeline) — that is how one signal is turned into another.
+
+**About logs.** Applications here log to stdout, which Promtail ships to Loki.
+The collector's logs pipeline only receives OTLP logs (if a service sends any)
+and prints them via `debug`. To make the collector the single path for logs
+too, add a Loki/OTLP exporter to that pipeline.
+
+**How to use it.**
+```bash
+docker compose logs -f otel-collector                  # export errors appear here
+docker compose exec prometheus wget -qO- http://otel-collector:8889/metrics | head
+```
+
+**Adding a vendor** (e.g. New Relic, Elastic, Datadog) = add an exporter and
+append it to the pipelines. No application changes:
+
+```yaml
+exporters:
+  otlphttp/newrelic:
+    endpoint: https://otlp.eu01.nr-data.net
+    headers:
+      api-key: ${env:NEW_RELIC_LICENSE_KEY}
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/jaeger, spanmetrics, otlphttp/newrelic]
+```
+
+**Common problems.**
+- *Edited the YAML, nothing changed* — mounted config is read at start:
+  `docker compose restart otel-collector`.
+- *No data anywhere* — collector failed to start because of a YAML error;
+  check its logs first.
+- *A service is missing* — its `OTEL_EXPORTER_OTLP_ENDPOINT` is wrong, or the
+  container was not recreated after the variable was added
+  (`docker compose up -d --force-recreate <service>`).
+- *`unknown_service:…` appears* — an SDK without `OTEL_SERVICE_NAME`.
+
+**Alternatives.** Grafana Alloy, Fluent Bit, Vector, vendor agents (Datadog
+Agent, New Relic infrastructure agent).
+
+---
+
+### 5.2 Jaeger
+
+**What it is.** An open-source distributed-tracing back-end (CNCF graduated):
+stores spans and provides a UI to search traces and view them as waterfalls.
+
+**Why it is here.** To see one checkout as a single picture — gateway → cart →
+order → Postgres → RabbitMQ → payment → inventory → notification — with timing
+for every step.
+
+**Real-world use cases.** Finding which service or query makes a request slow,
+locating where an error starts, understanding unknown call paths, verifying
+that a new service is called the way you expect.
+
+**Configuration here.**
+
+```yaml
+jaeger:
+  image: jaegertracing/all-in-one:1.62.0
+  environment:
+    COLLECTOR_OTLP_ENABLED: "true"            # accept OTLP from the collector
+    METRICS_STORAGE_TYPE: prometheus          # powers the "Monitor" tab
+    PROMETHEUS_SERVER_URL: http://prometheus:9090
+    PROMETHEUS_QUERY_NORMALIZE_CALLS: "true"
+    PROMETHEUS_QUERY_NORMALIZE_DURATION: "true"
+  ports:
+    - "16686:16686"                           # UI
+```
+
+- *all-in-one* = collector + query service + UI + **in-memory storage** in one
+  process. Traces are lost when the container restarts. Fine for local.
+- The `METRICS_STORAGE_TYPE`/`PROMETHEUS_*` settings enable **Service
+  Performance Monitoring (SPM)**: the *Monitor* tab reads the spanmetrics from
+  Prometheus. The NORMALIZE flags tell Jaeger the metric names carry the
+  `_total` / `_milliseconds` suffixes added by the Prometheus exporter.
+
+**How to use it.** <http://localhost:16686>
+- **Search** — pick a service (e.g. `order-service`), optionally an operation,
+  `Min Duration: 500ms` or tag `error=true`, then *Find Traces*.
+- **Trace view** — the waterfall; long bars are where time goes, red marks
+  are errors. Expand a span for attributes (SQL statement, HTTP status,
+  messaging destination).
+- **System Architecture** — service dependency graph built from traces.
+- **Monitor** — RED charts per service and operation.
+
+**Common problems.**
+- *Service missing from the dropdown* — no spans received yet; generate a
+  request, then check the collector logs.
+- *Old traces gone* — in-memory storage; restarted container.
+- *Monitor tab empty* — Prometheus has no spanmetrics yet, or name
+  normalisation flags mismatch.
+
+**Alternatives.** Grafana Tempo (object-storage, cheap at scale), Zipkin,
+SigNoz, vendor APMs. Production Jaeger uses Elasticsearch/OpenSearch or
+Cassandra storage.
+
+---
+
+### 5.3 Prometheus
+
+**What it is.** A time-series database and monitoring system (CNCF graduated).
+It **pulls** (scrapes) `/metrics` endpoints on a schedule, stores the samples,
+and lets you query them with **PromQL**.
+
+**Why it is here.** It is the single metrics store: application RED metrics,
+business metrics, container resources, database, cache and broker metrics.
+
+**Real-world use cases.** Service and infrastructure dashboards, alerting
+(with Alertmanager), SLO tracking, capacity planning. It is the de-facto
+standard for Kubernetes metrics.
+
+**Configuration here.**
+
+```yaml
+prometheus:
+  image: prom/prometheus:v2.54.1
+  command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --enable-feature=exemplar-storage      # keep trace IDs attached to samples
+    - --storage.tsdb.retention.time=3d       # keep 3 days of data
+  volumes:
+    - prometheus-data:/prometheus
+```
+
+Scrape jobs (`observability/prometheus.yml`, every 15 s):
+
+| Job | Target | What it gives |
+|---|---|---|
+| `prometheus` | `localhost:9090` | Prometheus' own health |
+| `otel-collector` | `otel-collector:8889` | App SDK metrics + spanmetrics. `honor_labels: true` keeps each service's own `job` label instead of overwriting it with `otel-collector` |
+| `rabbitmq` | `rabbitmq:15692` | Broker-wide totals |
+| `rabbitmq-queues` | `rabbitmq:15692/metrics/detailed?family=queue_coarse_metrics` | Per-queue depth (`rabbitmq_detailed_queue_*`) |
+| `postgres` | `postgres-exporter:9187` | Database stats |
+| `redis` | `redis-exporter:9121` | Cache stats |
+| `mongodb` | `mongodb-exporter:9216` | Database stats |
+| `cadvisor` | `cadvisor:8080` | Per-container CPU / memory / network |
+
+**How to use it.** <http://localhost:9090>
+- **Status → Targets** — every job should be `UP`. This is the first check
+  when a panel is empty.
+- **Graph** — try these queries:
+
+```promql
+# Requests per second, per service
+sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[1m]))
+
+# Error percentage per service
+100 * sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m]))
+    / sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[5m]))
+
+# p95 latency per service (ms)
+histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_milliseconds_bucket[5m])))
+
+# Messages waiting per queue
+sum by (queue) (rabbitmq_detailed_queue_messages_ready)
+
+# Memory per container
+sum by (container_label_com_docker_compose_service) (container_memory_working_set_bytes)
+```
+
+Key ideas: `rate()` turns an ever-growing counter into per-second speed;
+`histogram_quantile()` computes percentiles from histogram buckets;
+`sum by (x)` aggregates while keeping label `x`.
+
+**Common problems.**
+- *Target DOWN* — container stopped, wrong port, or network name; the error
+  text on the Targets page usually says which.
+- *Edited `prometheus.yml`, no effect* — `docker compose restart prometheus`.
+- *Disk use growing* — controlled by `retention.time`; also avoid
+  high-cardinality labels (user IDs, order IDs) in metrics.
+
+**Alternatives.** Grafana Mimir, Thanos, VictoriaMetrics (long-term, scalable
+Prometheus); managed: Amazon Managed Service for Prometheus, Grafana Cloud.
+
+---
+
+### 5.4 Loki
+
+**What it is.** Grafana's log database. Unlike Elasticsearch it does **not**
+index the full text of every line — it indexes only a small set of **labels**
+(here `service` and `container`) and stores the compressed lines. Searching
+inside lines is done at query time. That makes it much cheaper to run.
+
+**Why it is here.** To keep every container's logs in one searchable place,
+linked to traces.
+
+**Real-world use cases.** Centralised application and Kubernetes logs,
+incident debugging, audit trails, log-based alerts — especially when cost
+matters more than full-text search speed.
+
+**Configuration here.**
+
+```yaml
+loki:
+  image: grafana/loki:3.2.0
+  command: ["-config.file=/etc/loki/local-config.yaml"]
+```
+
+- Uses the **built-in sample config** of the image: single process, no auth,
+  filesystem storage, TSDB index (schema v13).
+- **No volume and no host port**: logs are lost if the container is
+  recreated, and Loki is reached through Grafana (Explore → Loki) or by
+  other containers at `http://loki:3100`.
+
+**How to use it.** Grafana → **Explore** → data source **Loki**. LogQL examples:
+
+```logql
+{service="order-service"}                                   # all logs of one service
+{service=~".+"} |= "error"                                   # any line containing "error"
+{service="payment-service"} |~ "(?i)declined"                # case-insensitive regex
+{service=~".+"} |= "4bf92f3577b34da6a3ce929d0e0e4736"        # every line of one trace
+sum by (service) (count_over_time({service=~".+"} |= "error" [5m]))   # errors per service as a metric
+```
+
+Always start a query with a label selector `{...}` — that is what Loki uses to
+find the right data quickly.
+
+**Common problems.**
+- *No logs* — Promtail is not running or cannot reach Loki
+  (`docker compose logs promtail`).
+- *Logs gone after restart* — no volume (see above).
+- *"Too many outstanding requests" / slow queries* — narrow the time range and
+  the label selector.
+
+**Alternatives.** Elasticsearch / OpenSearch (+ Kibana), Graylog, Splunk,
+vendor log products; managed: Grafana Cloud Logs, CloudWatch Logs.
+
+---
+
+### 5.5 Promtail
+
+**What it is.** The log-shipping agent for Loki: discovers log sources, attaches
+labels, tails new lines and pushes them to Loki.
+
+**Why it is here.** The services just print to stdout. Promtail collects those
+lines from Docker without any change in the applications.
+
+**Configuration here** (`observability/promtail.yaml`):
+
+| Part | Setting | Meaning |
+|---|---|---|
+| `clients` | `http://loki:3100/loki/api/v1/push` | Where to send logs |
+| `positions` | `/tmp/positions.yaml` | Remembers how far each log was read (lost on restart → may re-read recent lines) |
+| `docker_sd_configs` | Docker socket, refresh 5 s | Discovers containers through the Docker API |
+| `filters` | label `com.docker.compose.project=ecommerce-demo-docker` | **Only this project's containers** — other containers on your machine are ignored |
+| `relabel_configs` | compose service name → `service`; container name → `container` | The two labels you query in Loki |
+
+The Docker socket is mounted **read-only** (`/var/run/docker.sock:ro`) — Promtail
+only needs to list containers and read their logs.
+
+**Important:** the filter uses the Compose project name. If you rename the
+project (`name:` at the top of `docker-compose.yml`), update the filter too, or
+no logs will arrive.
+
+**Common problems.**
+- *Some service has no logs* — its container lacks the Compose label (started
+  with plain `docker run`).
+- *Duplicate lines after restart* — positions file lives in `/tmp`; mount a
+  volume for it in long-lived setups.
+
+**Alternatives.** Grafana **Alloy** (Promtail's successor — Promtail is in
+long-term-support/end-of-life mode, so new setups should prefer Alloy; the
+Kubernetes version of this repo already uses Alloy), Fluent Bit, Vector,
+the OTel Collector `filelog` receiver.
+
+---
+
+### 5.6 Grafana
+
+**What it is.** The visualisation layer: dashboards, ad-hoc exploration and
+alerting across many data sources at once.
+
+**Why it is here.** One UI for all three signals, with click-through links
+between them.
+
+**Real-world use cases.** Operations dashboards, NOC/TV screens, business KPIs,
+on-call investigation, alerting to Slack/Teams/PagerDuty.
+
+**Configuration here.**
+
+```yaml
+grafana:
+  image: grafana/grafana:11.2.2
+  environment:
+    GF_AUTH_ANONYMOUS_ENABLED: "true"      # no login screen ...
+    GF_AUTH_ANONYMOUS_ORG_ROLE: Admin      # ... and everyone is Admin
+    GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    GF_FEATURE_TOGGLES_ENABLE: traceToMetrics
+  volumes:
+    - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - grafana-data:/var/lib/grafana
+```
+
+> ⚠️ Anonymous Admin is for a laptop demo only. Never expose this setting on a
+> shared network.
+
+**Provisioning = configuration as code.** Nothing is clicked together by hand;
+everything loads from files at startup:
+
+*Data sources* (`provisioning/datasources/datasources.yaml`):
+
+| Name / uid | Type | URL | Link configured |
+|---|---|---|---|
+| Prometheus / `prometheus` (default) | prometheus | `http://prometheus:9090` | **Exemplars → Jaeger** via `trace_id` |
+| Jaeger / `jaeger` | jaeger | `http://jaeger:16686` | **Trace → Loki logs**, ±5 min around the span, searching for the trace ID |
+| Loki / `loki` | loki | `http://loki:3100` | **Derived field `TraceID`**: regex finds `trace_id` / `TraceId` / `traceId` in a log line and links to Jaeger |
+
+*Dashboards* (`provisioning/dashboards/dashboards.yaml` loads every JSON in
+`observability/grafana/dashboards/` into folder **E-commerce Demo**):
+
+**Services — RED overview** (`uid: ecom-red`, variable `$service`)
+
+| Row | Panels |
+|---|---|
+| Golden signals | Throughput, Error rate, p95 latency, Orders paid/min (stats); Requests/sec by service; Error % by service; p95 latency by service *with exemplars*; Slowest operations (top 15, p95) |
+| Business metrics | Payments by result/min, Checkouts by result/min, Notifications by event/min |
+| Logs | Warnings & errors from all services (click a trace_id → Jaeger) |
+
+**Infrastructure** (`uid: ecom-infra`)
+
+| Row | Panels |
+|---|---|
+| Containers (cAdvisor) | CPU cores by container, Memory (working set) by container |
+| RabbitMQ | Messages ready by queue, Publish/deliver rate, Connections/consumers |
+| Datastores | Postgres transactions/sec and connections, Redis commands/sec and memory, MongoDB operations/sec and connections |
+| Pipeline health | Scrape targets up |
+
+**How to use it.** <http://localhost:3000>
+- **Dashboards → E-commerce Demo** — the two dashboards above.
+- **Explore** — free queries against any data source; split view to put
+  metrics and logs side by side.
+- To change a dashboard permanently: edit in the UI → *Save* is blocked for
+  provisioned dashboards, so use *Export → JSON* and replace the file in
+  `observability/grafana/dashboards/`, then commit it.
+
+**Common problems.**
+- *Panel says "No data"* — check the Prometheus target first, then the time
+  range, then the `$service` variable.
+- *Dashboard changes lost* — provisioned from files; see above.
+- *Data source error* — the back-end container is down; the URLs use Compose
+  service names, so they only work inside the network.
+
+**Alternatives.** Kibana (Elastic), vendor UIs (New Relic, Datadog),
+Perses (CNCF, dashboards-as-code).
+
+---
+
+### 5.7 cAdvisor
+
+**What it is.** *Container Advisor* from Google: reads resource usage of every
+running container from the kernel (cgroups) and exposes it as Prometheus
+metrics.
+
+**Why it is here.** To answer "which container is using the CPU / memory?" —
+application metrics cannot see this.
+
+**Real-world use cases.** Container right-sizing, spotting memory leaks before
+an OOM kill, noisy-neighbour detection. In Kubernetes the same code runs inside
+every kubelet.
+
+**Configuration here.**
+
+```yaml
+cadvisor:
+  image: ghcr.io/google/cadvisor:v0.60.5
+  privileged: true                         # needs kernel-level access
+  command: ["--docker_only=true", "--housekeeping_interval=15s"]
+  volumes:
+    - /:/rootfs:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+```
+
+- `--docker_only` — report containers only, not every system cgroup.
+- `--housekeeping_interval=15s` — collect at the same pace Prometheus scrapes.
+- On **Docker Desktop (macOS/Windows)** the paths refer to Docker's Linux VM,
+  not your laptop. Both sockets are mounted explicitly; the containerd socket
+  is needed when Docker uses the containerd image store.
+
+Useful metrics: `container_cpu_usage_seconds_total`,
+`container_memory_working_set_bytes`, `container_network_receive_bytes_total`.
+The label `container_label_com_docker_compose_service` holds the Compose
+service name.
+
+**Common problems.** *No per-container series* — usually a socket/mount
+mismatch on Docker Desktop; check `docker compose logs cadvisor`.
+`privileged: true` is a security trade-off — acceptable locally, review it
+elsewhere.
+
+**Alternatives.** node-exporter (host-level), Docker's own metrics endpoint,
+kubelet/cAdvisor in Kubernetes, vendor infrastructure agents.
+
+---
+
+### 5.8 postgres-exporter
+
+**What it is.** The official Prometheus community exporter for PostgreSQL. It
+connects as a database client, reads Postgres' statistics views
+(`pg_stat_database`, `pg_stat_activity`, …) and serves them on `:9187/metrics`.
+
+**Why it is here.** Postgres does not speak Prometheus format itself.
+
+**Configuration here.**
+
+```yaml
+postgres-exporter:
+  environment:
+    DATA_SOURCE_NAME: postgresql://postgres:postgres@postgres:5432/shop?sslmode=disable
+  depends_on:
+    postgres:
+      condition: service_healthy
+```
+
+In production give it a dedicated read-only user with the `pg_monitor` role,
+not the superuser.
+
+**Key metrics.** `pg_up` (can it connect at all), `pg_stat_database_xact_commit`
+/ `xact_rollback` (transactions), `pg_stat_database_numbackends` (connections),
+`pg_stat_database_deadlocks`, `pg_stat_database_blks_hit` vs `blks_read`
+(cache hit ratio).
+
+**Common problems.** `pg_up == 0` → wrong credentials or database name in
+`DATA_SOURCE_NAME`.
+
+---
+
+### 5.9 redis-exporter
+
+**What it is.** The standard community Prometheus exporter for Redis; runs
+`INFO` (and a few other commands) and serves the result on `:9121/metrics`.
+
+**Configuration here.** `REDIS_ADDR: redis://redis:6379` — that is all.
+
+**Key metrics.** `redis_up`, `redis_commands_processed_total`,
+`redis_memory_used_bytes`, `redis_connected_clients`,
+`redis_keyspace_hits_total` / `redis_keyspace_misses_total` (cache hit ratio),
+`redis_evicted_keys_total` (memory pressure), `redis_db_keys`.
+
+**Common problems.** `redis_up == 0` → Redis down or the address is wrong;
+with authentication enabled you also need `REDIS_PASSWORD`.
+
+---
+
+### 5.10 mongodb-exporter
+
+**What it is.** Percona's Prometheus exporter for MongoDB; reads
+`serverStatus`, database and collection stats and serves them on `:9216/metrics`.
+
+**Configuration here.**
+
+```yaml
+mongodb-exporter:
+  command: ["--mongodb.uri=mongodb://mongodb:27017", "--collect-all", "--compatible-mode"]
+```
+
+- `--collect-all` — enable every collector (db stats, collection stats,
+  indexes, top). Convenient for a demo; in big production clusters enable only
+  what you need, since collection/index stats can be heavy.
+- `--compatible-mode` — also expose the older metric names used by many
+  existing dashboards (e.g. `mongodb_ss_opcounters`, `mongodb_ss_connections`
+  used in the *Infrastructure* dashboard).
+
+**Key metrics.** `mongodb_up`, `mongodb_ss_opcounters` (by `legacy_op_type`:
+insert/query/update/delete/command), `mongodb_ss_connections{conn_type="current"}`,
+`mongodb_ss_mem_resident`.
+
+**Common problems.** Exporter starts before Mongo is ready → solved here by
+`depends_on … service_healthy`.
+
+---
+
+## 6. How the signals are linked together
+
+| From | To | How it works here |
+|---|---|---|
+| **Metric → trace** | Latency panel dot → Jaeger | spanmetrics stores **exemplars** (a sample's trace ID); the collector exports them in OpenMetrics format; Prometheus keeps them (`--enable-feature=exemplar-storage`); Grafana's Prometheus data source maps `trace_id` to Jaeger |
+| **Log → trace** | Log line → Jaeger | Services print `trace_id` in every log line; Loki data source **derived field** regex turns it into a link |
+| **Trace → logs** | Span → Loki | Jaeger data source `tracesToLogsV2` runs `{service=~".+"} \|= "<traceId>"` around the span's time |
+| **Trace → metrics** | Jaeger *Monitor* tab | Jaeger reads the same spanmetrics from Prometheus |
+| **Across services** | One trace through HTTP and RabbitMQ | OTel propagates the W3C `traceparent` in HTTP headers and in message headers |
+
+The common key is the **trace ID**. Without it, the three tools are three
+separate silos.
+
+---
+
+## 7. Ports and URLs
+
+| URL / address | Component | Notes |
+|---|---|---|
+| <http://localhost:3000> | Grafana | No login (demo) |
+| <http://localhost:9090> | Prometheus | Status → Targets |
+| <http://localhost:16686> | Jaeger | Search, Monitor, System Architecture |
+| <http://localhost:15672> | RabbitMQ management | guest / guest |
+| `localhost:4317` / `localhost:4318` | OTel Collector | Send your own OTLP test data |
+| `postgres:5432`, `mongodb:27017`, `redis:6379`, `rabbitmq:5672` | Data stores | Inside the Compose network only |
+| `loki:3100` | Loki | Inside only — use Grafana Explore |
+| `otel-collector:8889`, `rabbitmq:15692`, `postgres-exporter:9187`, `redis-exporter:9121`, `mongodb-exporter:9216`, `cadvisor:8080` | Metrics endpoints | Scraped by Prometheus |
+
+---
+
+## 8. Investigating a problem end to end
+
+Example: "Checkout feels slow."
+
+1. **Grafana → Services — RED overview.** Is p95 up? For which service? Is the
+   error rate up too, or only latency? (Latency without errors still means
+   something is wrong — e.g. a broker that is down makes calls hang, not fail.)
+2. **Click an exemplar dot** on the p95 panel → the exact slow trace opens.
+3. **In the trace**, find the longest span. A DB span? A wait on RabbitMQ?
+   A call to another service?
+4. **Logs for this trace** → from the span, jump to Loki and read what the
+   service printed at that moment.
+5. **Infrastructure dashboard** → is the cause underneath? Queue depth growing,
+   Postgres connections maxed, a container at its memory limit?
+6. **Confirm with the source tool** — RabbitMQ UI (queues, consumers),
+   `psql` (`pg_stat_activity`), `redis-cli INFO`.
+
+Practice it: `docker compose stop rabbitmq` (or `payment-service`), watch the
+steps above, then start it again.
+
+---
+
+## 9. Troubleshooting cheat sheet
+
+| Symptom | First check | Usual fix |
+|---|---|---|
+| A dashboard panel shows "No data" | Prometheus → Status → Targets | Start the stopped container / fix the target |
+| No traces for one service | `docker compose logs <service>` for OTLP errors | Fix `OTEL_EXPORTER_OTLP_ENDPOINT`; recreate the container |
+| No traces at all | `docker compose logs otel-collector` | Fix collector YAML, restart it |
+| Config change has no effect | Was the container restarted? | `docker compose restart <component>` |
+| No logs in Loki | `docker compose logs promtail` | Compose project name must match Promtail's filter |
+| Jaeger empty after restart | — | Expected: in-memory storage |
+| Queue depth growing | RabbitMQ UI → Queues → Consumers = 0? | Restart the consumer service; read its logs |
+| A database dependant won't start | `docker compose ps` health column | Wait for healthy; check DB logs |
+| Docker uses lots of disk | `docker system df` | `docker builder prune`, `docker image prune`; reduce Prometheus retention |
+| Mounted file unreadable inside a container (I/O or permission error) | Is the repo inside a cloud-synced folder (OneDrive, iCloud)? | Keep the repo on a normal local disk path |
+
+Useful commands:
+
+```bash
+docker compose ps                          # status + health
+docker compose logs -f <component>         # follow logs
+docker compose restart <component>         # reload a mounted config
+docker compose up -d --scale loadgen=0     # start everything except the load generator
+docker compose down                        # stop, keep volumes (data)
+docker compose down -v                     # stop AND delete all data
+```
+
+---
+
+## 10. Taking this to production
+
+This stack is designed for learning on one machine. The main gaps before
+running anything similar for real:
+
+| Area | Here | Production |
+|---|---|---|
+| Credentials | Defaults (`postgres/postgres`, `guest/guest`), Grafana anonymous Admin | Secrets manager, unique passwords, SSO for Grafana |
+| Data stores | Single containers | Managed services or replicated clusters, backups |
+| Jaeger | In-memory all-in-one | Elasticsearch/OpenSearch/Cassandra storage, or Tempo |
+| Loki | Sample config, no volume | Object storage (S3), retention policy, auth |
+| Prometheus | 3 days, single node | Long-term storage (Mimir/Thanos/managed), HA pair |
+| Sampling | 100 % of traces | Head or tail sampling in the collector |
+| Alerting | None | Alertmanager or Grafana alerting, routed to on-call |
+| Log shipper | Promtail | Grafana Alloy or OTel Collector `filelog` |
+| Privileges | cAdvisor privileged, Docker socket mounted | Review and minimise |
+
+The Kubernetes version of this project (`using-kubernetes/`) already moves
+several of these forward — see `using-kubernetes/docs/OBSERVABILITY.md`.
